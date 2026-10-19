@@ -2,7 +2,7 @@
 
 A 3D superhero fighting game in the style of modern Mortal Kombat, built with Three.js. Two players share one keyboard, or you can play against the CPU.
 
-> Non-commercial fan prototype. Every hero, costume and arena is generated in code: sculpted, skinned bodies with painted costumes, and faces with moving jaws, eyelids and brows. The audio is synthesized in code too. There are no official Marvel or DC models, textures or sounds, and all characters and names belong to their owners.
+> Non-commercial fan prototype. Every hero, costume and arena is generated in code: sculpted, skinned bodies with painted costumes, and faces with moving jaws, eyelids and brows. The audio is synthesized in code too. There are no official Marvel models, textures or sounds, and all characters and names belong to their owners.
 
 ## Run it
 
@@ -49,8 +49,8 @@ That opens http://localhost:8000 in your browser. ES modules don't load from `fi
 | Hulk | Ground Smash: low shockwave | Hulk Smash: leaping slam | Super armor on heavies, most HP |
 | Captain America | Shield Throw: returns like a boomerang | Avengers Assemble: shield rush combo | Shield block takes almost no chip |
 | Gamora | Godslayer Dash: dash-through slash | Blade Fury: teleporting slash flurry | Longest light attacks |
-| Doomsday | Bone Charge: armored shoulder charge | Extinction Rampage: grab, pummel and crater slam | Regenerates when not hit |
-| Sentry | Solar Flare: heavy golden blast | Million Exploding Suns: arena-wide nova | Triple jump (flight) |
+| Doctor Doom | Mystic Bolt: crackling green sorcery blast | Science & Sorcery: binds the foe in green lightning and detonates | Force field: half chip damage when blocking |
+| Sentry | Solar Flare: heavy golden blast | The Void: turns into his dark side, and shadow tendrils seize and slam the foe | Triple jump (flight) |
 
 **Arenas:** Tower Rooftop (a rainy night city with lightning), Knowhere Outpost (a mining deck before a giant skull station) and Rainbow Bridge (a crystal bridge before the golden city).
 

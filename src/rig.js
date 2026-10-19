@@ -110,6 +110,7 @@ export class Rig {
 
   // after the root transform is final for this frame: face + cloth
   lateUpdate(dt) {
+    this.applyVoid(dt);
     if (this.face) this.face.update(dt);
     if (this.cloths.length) {
       this.root.updateMatrixWorld(true);
@@ -118,6 +119,30 @@ export class Rig {
   }
 
   setExpression(name) { if (this.face) this.face.set(name); }
+
+  // darken every material toward a shadow form (Sentry's Void)
+  setVoid(v) { this.voidTarget = v; }
+  applyVoid(dt) {
+    const target = this.voidTarget || 0;
+    if (this.voidAmt === undefined) this.voidAmt = 0;
+    if (this.voidAmt === target && !this.voidMats) return;
+    if (!this.voidMats) {
+      const all = new Set();
+      this.root.traverse((o) => { if (o.isMesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m.color && all.add(m)); });
+      this.voidMats = [...all].map((m) => ({ m, c: m.color.clone(), sh: m.sheen || 0, cc: m.clearcoat || 0, env: m.envMapIntensity ?? 1 }));
+    }
+    this.voidAmt += (target - this.voidAmt) * Math.min(1, dt * 5);
+    if (Math.abs(this.voidAmt - target) < 0.003) this.voidAmt = target;
+    const k = this.voidAmt;
+    const dark = new THREE.Color(0x07040c);
+    for (const { m, c, sh, cc, env } of this.voidMats) {
+      m.color.copy(c).lerp(dark, k * 0.96);
+      if (m.sheen !== undefined) m.sheen = sh * (1 - k);
+      if (m.clearcoat !== undefined) m.clearcoat = cc * (1 - k * 0.6);
+      if (m.envMapIntensity !== undefined) m.envMapIntensity = env * (1 - k * 0.7);
+    }
+    if (this.face && this.face.eyeMat) { this.face.eyeMat.emissive.setRGB(k * 1.0, 0, k * 0.05); this.face.eyeMat.emissiveIntensity = 1 + k * 4; this.face.eyeMat.emissiveMap = k > 0.01 ? null : this.face.eyeMat.userData.emap; this.face.eyeMat.needsUpdate = this.face.eyeMat.userData.hadMap !== (k <= 0.01); this.face.eyeMat.userData.hadMap = k <= 0.01; }
+  }
 
   // blend toward a target pose and apply it to the joints
   update(target, dt, rate = 16) {

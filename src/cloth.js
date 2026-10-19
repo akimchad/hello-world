@@ -5,17 +5,20 @@ import * as THREE from 'three';
 const V = THREE.Vector3;
 
 export class Cloth {
-  constructor(rig, { width = 0.62, length = 1.25, cols = 9, rows = 13, material, anchorY = 0.2, anchorZ = -0.13, flare = 0.4 }) {
+  constructor(rig, { width = 0.62, length = 1.25, cols = 9, rows = 13, material, anchorY = 0.2, anchorZ = -0.13, flare = 0.4, bone = 'chest', anchors = null, side = -1, wrap = 0.12, extraColliders = null }) {
     this.rig = rig;
     const s = rig.dims.scale;
     this.cols = cols; this.rows = rows;
+    this.bone = rig.J[bone];
+    this.side = side; // -1 hangs behind, +1 hangs in front
+    this.extraColliders = extraColliders;
     this.dx = width * s / (cols - 1); this.dy = length * s / (rows - 1);
     this.flare = flare;
     this.anchors = [];
     for (let c = 0; c < cols; c++) {
       const t = c / (cols - 1) - 0.5;
-      // anchors sweep around the back of the shoulders
-      this.anchors.push(new V(t * width, anchorY - Math.abs(t) * 0.04, anchorZ - (0.25 - t * t) * 0.12 + 0.03));
+      // anchors sweep around the body (behind the shoulders by default)
+      this.anchors.push(anchors ? anchors(t) : new V(t * width, anchorY - Math.abs(t) * 0.04, anchorZ + side * (0.25 - t * t) * wrap + 0.03 * -side));
     }
     const n = cols * rows;
     this.p = Array.from({ length: n }, () => new V());
@@ -30,7 +33,7 @@ export class Cloth {
     this.lastAnchor = new V();
   }
 
-  anchorWorld(c, out) { return this.rig.J.chest.localToWorld(out.copy(this.anchors[c])); }
+  anchorWorld(c, out) { return this.bone.localToWorld(out.copy(this.anchors[c])); }
 
   reset() {
     const a = new V();
@@ -49,18 +52,20 @@ export class Cloth {
   backDir() {
     const q = new THREE.Quaternion();
     this.rig.J.chest.getWorldQuaternion(q);
-    return new V(0, 0, -1).applyQuaternion(q).setY(0).normalize();
+    return new V(0, 0, this.side).applyQuaternion(q).setY(0).normalize();
   }
 
   colliders() {
     const J = this.rig.J, s = this.rig.dims.scale, d = this.rig.dims;
     const w = (b, y = 0) => b.localToWorld(new V(0, y, 0));
     const r = 0.17 * s * d.chestK * d.depthK;
-    return [
+    const list = [
       [w(J.hips, -0.05), w(J.chest, 0.22), r],
       [w(J.lHip), w(J.lKnee), 0.1 * s * d.legK], [w(J.rHip), w(J.rKnee), 0.1 * s * d.legK],
       [w(J.lKnee), w(J.lFoot), 0.08 * s * d.legK], [w(J.rKnee), w(J.rFoot), 0.08 * s * d.legK],
     ];
+    if (this.extraColliders) list.push(...this.extraColliders(w, J, s));
+    return list;
   }
 
   update(dt) {

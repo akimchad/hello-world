@@ -26,6 +26,9 @@ export class Fighter {
   }
 
   reset(x) {
+    if (this.script && this.script.cleanup && this.game) this.script.cleanup(this, this.game);
+    this.script = null;
+    if (this.rig.setVoid) { this.rig.setVoid(0); this.rig.voidAmt = this.rig.voidMats ? 0.0001 : 0; }
     this.x = x; this.y = 0; this.vx = 0; this.vy = 0;
     this.facing = this.side === 0 ? 1 : -1;
     this.hp = this.maxHp;
@@ -353,7 +356,7 @@ export class Fighter {
 
   expression() {
     const t = this.stateT;
-    const calm = this.hero.id === 'doomsday' ? 'grit' : 'focus';
+    const calm = this.hero.id === 'doom' ? 'grit' : 'focus';
     switch (this.state) {
       case 'idle': return this.blocking ? 'effort' : calm;
       case 'air': return 'grit';

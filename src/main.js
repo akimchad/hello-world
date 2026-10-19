@@ -129,7 +129,7 @@ class Showcase {
       const br = Math.sin(this.t * 2.4 + i * 1.7) * 0.05;
       addTo(p, 'spine', br); addTo(p, 'lEl', -br * 2); addTo(p, 'rEl', br * 2); p.hipY = br * 0.5;
       rig.update(p, dt, this.celebrate[i] > 0 ? 10 : 8);
-      rig.setExpression(this.exprOverride || (this.celebrate[i] > 0 ? 'laugh' : (rig.heroId === 'doomsday' ? 'grit' : 'focus')));
+      rig.setExpression(this.exprOverride || (this.celebrate[i] > 0 ? 'laugh' : (rig.heroId === 'doom' ? 'grit' : 'focus')));
       if (rig.face) rig.face.look = i === 0 ? 0.3 : -0.3;
       rig.root.updateMatrixWorld(true);
       rig.lateUpdate(dt);
@@ -186,7 +186,7 @@ function renderPortraits() {
     const rig = h.build(false);
     rig.root.rotation.y = 0.45;
     scene.add(rig.root);
-    rig.setExpression(h.id === 'doomsday' ? 'roar' : 'grit');
+    rig.setExpression(h.id === 'doom' ? 'roar' : 'grit');
     for (let k = 0; k < 30; k++) { rig.update(POSES.idle, 0.05, 30); rig.root.updateMatrixWorld(true); rig.lateUpdate(0.05); }
     if (rig.face) { rig.face.blink = 0; rig.face.blinkT = 9; rig.face.update(0.0001); }
     const head = rig.J.head.localToWorld(rig.headCenter.clone());

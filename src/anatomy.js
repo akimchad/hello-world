@@ -268,8 +268,14 @@ export function buildHeroRig(spec) {
     { y: 0.02, th: 0.62, sy: 0.04, st: 0.12, a: -0.007 * M }, { y: 0.02, th: -0.62, sy: 0.04, st: 0.12, a: -0.007 * M },
   ];
   if (d.female) tb.push({ y: 0.415, th: 0.42, sy: 0.055, st: 0.32, a: 0.032 }, { y: 0.415, th: -0.42, sy: 0.055, st: 0.32, a: 0.032 });
-  for (const yy of [0.115, 0.18, 0.245]) for (const s of [-1, 1]) tb.push({ y: yy, th: 0.17 * s, sy: 0.022, st: 0.11, a: 0.006 * M * (d.female ? 0.4 : 1) });
-  const torsoGeo = loftGeometry({ y0: T[0], y1: T[1], rings: 46, seg: 40, profile: profileFn(torsoKeys), bumps: tb, center: (y) => [0, -0.004 + sstep(0.5, 0.66, y) * -0.012] });
+  if (!d.female) for (const sd of [-1, 1]) {
+    tb.push({ y: 0.375, th: 0.5 * sd, sy: 0.018, st: 0.4, a: -0.012 * M });            // lower pec fold
+    for (let k = 0; k < 3; k++) tb.push({ y: 0.3 + k * 0.045, th: 1.2 * sd, sy: 0.016, st: 0.1, a: 0.006 * M }); // serratus
+    tb.push({ y: 0.1, th: 0.95 * sd, sy: 0.07, st: 0.25, a: 0.01 * M });                 // obliques
+  }
+  tb.push({ y: 0.29, th: 0, sy: 0.13, st: 0.045, a: -0.005 * M });                       // linea alba
+  for (const yy of [0.1, 0.165, 0.23, 0.29]) for (const s of [-1, 1]) tb.push({ y: yy, th: 0.16 * s, sy: 0.021, st: 0.1, a: 0.0075 * M * (d.female ? 0.35 : 1) });
+  const torsoGeo = loftGeometry({ y0: T[0], y1: T[1], rings: 64, seg: 56, profile: profileFn(torsoKeys), bumps: tb, center: (y) => [0, -0.004 + sstep(0.5, 0.66, y) * -0.012] });
   torsoGeo.translate(0, hipsY, 0);
   const sb = bi('spine'), cb = bi('chest'), hb = bi('hips');
   rig.parts = {};
@@ -306,8 +312,11 @@ export function buildHeroRig(spec) {
       { y: -0.12, th: Math.PI, sy: 0.07, st: 0.6, a: 0.015 * M * ak },     // triceps
       { y: -0.015, th: out, sy: 0.055, st: 0.9, a: 0.012 * M * ak },       // deltoid
       { y: -(u + 0.07), th: out * 0.5, sy: 0.05, st: 0.5, a: 0.011 * M * ak }, // forearm
+      { y: -0.075, th: out * 0.8, sy: 0.012, st: 0.6, a: -0.006 * M },             // deltoid insertion
+      { y: -(u - 0.02), th: 0, sy: 0.02, st: 0.5, a: -0.006 * M },                 // elbow crease
+      { y: -(u + 0.04), th: out * 1.4, sy: 0.04, st: 0.35, a: 0.008 * M * ak },     // brachioradialis
     ];
-    const geo = loftGeometry({ y0: -(u + f + 0.01), y1: 0.075, rings: 36, seg: 24, profile: (y) => { const [r] = pf(y); return [r, r * 0.96]; }, bumps: ab,
+    const geo = loftGeometry({ y0: -(u + f + 0.01), y1: 0.075, rings: 48, seg: 32, profile: (y) => { const [r] = pf(y); return [r, r * 0.96]; }, bumps: ab,
       center: (y) => [side * sstep(-0.05, 0.07, y) * -0.012, 0] });
     geo.translate(sh.x, sh.y, sh.z);
     const shB = bi(S + 'Sh'), elB = bi(S + 'El'), haB = bi(S + 'Hand');
@@ -342,7 +351,7 @@ export function buildHeroRig(spec) {
       { y: -(t + 0.13), th: Math.PI + inner * 0.3, sy: 0.06, st: 0.4, a: 0.008 * M * lk },
       { y: -t, th: 0, sy: 0.025, st: 0.35, a: 0.01 },
     ];
-    const geo = loftGeometry({ y0: -(t + s + 0.01), y1: 0.07, rings: 40, seg: 24, profile: (y) => { const [r] = pf(y); return [r * 0.95, r * 1.04]; }, bumps: lb,
+    const geo = loftGeometry({ y0: -(t + s + 0.01), y1: 0.07, rings: 52, seg: 32, profile: (y) => { const [r] = pf(y); return [r * 0.95, r * 1.04]; }, bumps: lb,
       center: (y) => [side * sstep(-0.1, 0.07, y) * -0.012, sstep(-0.1, 0.05, y) * -0.006] });
     geo.translate(hp.x, hp.y, hp.z);
     const hpB = bi(S + 'Hip'), knB = bi(S + 'Knee');

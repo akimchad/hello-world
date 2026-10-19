@@ -24,7 +24,7 @@ const OVERRIDES = {
   cap: { heavy: { sfx: 'shield', color: 0xbfd6ff } },
   ironman: { heavy: { color: 0x8fe0ff } },
   spiderman: { kick: { x1: 1.38 } },
-  doomsday: { heavy: { pose: ['smashW', 'smash'], startup: 0.27, recovery: 0.34, dmg: 12, x1: 1.25, y0: 0.2, height: 'overhead', armor: true, knockdown: true, shake: 0.55 }, kick: { x1: 1.3 } },
+  doom: { heavy: { color: 0x7dff6a, zap: true, dmg: 11.5 } },
   sentry: { heavy: { dmg: 12, color: 0xffd060, x1: 1.2 }, cross: { color: 0xffd060 } },
 };
 
@@ -73,20 +73,25 @@ function seq(f, steps, t, run) {
 // SPECIALS — start(f, g) then update(f, g, t, dt) returns false when done
 // ------------------------------------------------------------------
 export const SPECIALS = {
-  boneCharge: {
-    update(f, g, t, dt) {
-      if (t < 0.24) { f.setPose('dash'); f.armor = true; f.vx = 0; if (!f.chargeFx) { f.chargeFx = true; g.audio.play('roar', 0.6); } return true; }
-      if (t < 0.6) {
-        f.setPose('dash', 30); f.armor = true; f.vx = f.facing * 13;
-        if (!f.hitId) f.hitId = newHitId();
-        if (Math.random() < 0.6) g.fx.dust(new THREE.Vector3(f.x - f.facing * 0.3, 0.1, 0), 2);
-        const x0 = f.x, x1 = f.x + f.facing * 1.15 * f.scale;
-        const r = g.zoneHit(f, { x0: Math.min(x0, x1), x1: Math.max(x0, x1), y0: 0.3, y1: 2.1 }, { id: f.hitId, dmg: 13, height: 'mid', stun: 0.5, blockstun: 0.3, push: 5, knockdown: true, kind: 'special', sfx: 'heavy', color: 0xffb070, srcX: f.x - f.facing, shake: 0.5 });
-        if (r) { f.ultT = 0.6; f.vx = 0; }
+  doomBolt: {
+    update(f, g, t) {
+      const GREEN = 0x7dff6a;
+      if (t < 0.18) {
+        f.setPose('castW');
+        if (Math.random() < 0.5) { const h = handPos(f); g.fx.bolt(h, h.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.5, Math.random() * 0.5, 0)), GREEN, 0.06, 0.02, 0); }
         return true;
       }
-      f.armor = false; f.vx *= 0.85; f.setPose('idle');
-      return t < 0.95;
+      f.setPose('cast');
+      if (!f.fired) {
+        f.fired = true;
+        const p = handPos(f);
+        g.spawnProjectile({ owner: f, x: p.x + f.facing * 0.2, y: p.y, vx: f.facing * 17, r: 0.32, life: 1.1, mesh: glowOrb(0x4aff4a, 0.3), trail: GREEN,
+          hit: { dmg: 10, height: 'mid', stun: 0.45, blockstun: 0.22, push: 4, kind: 'special', sfx: 'zap', sfxVol: 0.6, color: GREEN },
+          onUpdate: (pr) => { if (Math.random() < 0.5) { const a = new THREE.Vector3(pr.x, pr.y, 0); g.fx.bolt(a, a.clone().add(new THREE.Vector3(-pr.vx * 0.03 + (Math.random() - 0.5) * 0.7, (Math.random() - 0.5) * 0.7, 0)), GREEN, 0.05, 0.025, 0); } } });
+        g.audio.play('zap', 0.7); g.audio.play('blast', 0.5);
+        g.fx.emit(p, { count: 18, color: 0xc8ffc0, color2: GREEN, speed: 6, life: 0.25, size: 0.25 });
+      }
+      return t < 0.5;
     },
   },
 
@@ -291,70 +296,103 @@ function startLock(f, g, opp) {
 }
 
 export const ULTIMATES = {
-  doomRampage: {
+  doomWrath: {
     update(f, g, t) {
       const opp = g.opponentOf(f);
+      const GREEN = 0x7dff6a;
       if (!f.locked) {
-        if (t < 0.2) { f.setPose('dash'); f.armor = true; return true; }
-        if (t < 0.7) {
-          f.setPose('dash'); f.vx = f.facing * 15;
-          if (!f.hitId) { f.hitId = newHitId(); g.audio.play('roar'); }
-          g.fx.dust(new THREE.Vector3(f.x, 0.1, 0), 2);
-          const x0 = f.x, x1 = f.x + f.facing * 1.2 * f.scale;
-          const r = g.zoneHit(f, { x0: Math.min(x0, x1), x1: Math.max(x0, x1), y0: 0.3, y1: 2.2 }, { id: f.hitId, dmg: 5, height: 'mid', stun: 0.8, blockstun: 0.35, push: 2, kind: 'ult', sfx: 'heavy', color: 0xffb070 });
-          if (r === 'hit' && opp.hp > 0) { f.vx = 0; startLock(f, g, opp); }
-          else if (r === 'blocked') { f.vx = 0; f.ultT = 0.7; }
-          return true;
+        f.setPose(t < 0.22 ? 'castW' : 'castBoth');
+        if (t >= 0.22 && !f.fired) {
+          f.fired = true;
+          g.audio.play('zap', 1.1);
+          const reach = f.x + f.facing * 9;
+          g.fx.bolt(handPos(f), opp.chestPos(), GREEN, 0.35, 0.1, 3);
+          const r = g.zoneHit(f, { x0: Math.min(f.x, reach), x1: Math.max(f.x, reach), y0: 0.2, y1: 2.4 }, { id: newHitId(), dmg: 3, height: 'mid', stun: 0.8, blockstun: 0.35, push: 1, kind: 'ult', sfx: 'zap', color: GREEN });
+          if (r === 'hit' && opp.hp > 0) startLock(f, g, opp);
         }
-        f.armor = false; f.vx *= 0.8; f.setPose('idle');
-        return t < 1.05;
+        return t < 0.9;
       }
-      f.vx = 0;
-      const crater = () => { const p = new THREE.Vector3(opp.x, 0.05, 0); g.fx.ring(p, 0xffb070, 4, 0.5); g.fx.dust(p, 50); g.fx.emit(new THREE.Vector3(opp.x, 0.3, 0), { count: 40, color: 0xc0a080, speed: 9, life: 0.7, size: 0.22, up: 5, gravity: -16 }); g.audio.play('boom', 1.2); };
+      f.setPose('castBoth');
+      // levitate the foe and pour green lightning into them
+      if (opp.state === 'locked') { opp.onGround = false; opp.y = Math.min(1.6, opp.y + g.dt * 2.4); }
+      if (Math.random() < 0.85) { g.fx.bolt(handPos(f), opp.chestPos(), GREEN, 0.06, 0.07, 1); g.fx.bolt(handPos(f, 'cast2'), opp.chestPos(), 0xb0ff9a, 0.06, 0.05, 1); }
+      g.fx.emit(opp.chestPos(), { count: 3, color: GREEN, color2: 0xffffff, speed: 4, life: 0.3, size: 0.25 });
+      const blast = () => { const c = opp.chestPos(); g.fx.ring(c.clone().setZ(0.3), GREEN, 4, 0.45, 'face'); g.fx.emit(c, { count: 90, color: 0xffffff, color2: GREEN, speed: 16, life: 0.6, size: 0.35 }); g.fx.flashLight(c, GREEN, 30, 0.4); g.audio.play('boom', 1.2); };
       const done = lockCombo(f, g, t, [
-        { at: 0.06, pose: 'hook', dmg: 3.8, sfx: 'heavy' },
-        { at: 0.24, pose: 'cross', dmg: 3.8, sfx: 'heavy' },
-        { at: 0.42, pose: 'hook', dmg: 3.8, sfx: 'heavy' },
-        { at: 0.6, pose: 'upper', dmg: 3.8, sfx: 'heavy' },
-        { at: 0.78, pose: 'smashW', fx: () => g.audio.play('roar', 0.8) },
-        { at: 1.0, pose: 'smash', dmg: 9, sfx: 'heavy', knockdown: true, final: true, fx: crater },
-        { at: 1.6 },
+        { at: 0.15, dmg: 4, sfx: 'zap', color: GREEN }, { at: 0.42, dmg: 4, sfx: 'zap', color: GREEN },
+        { at: 0.69, dmg: 4, sfx: 'zap', color: GREEN }, { at: 0.96, dmg: 4, sfx: 'zap', color: GREEN },
+        { at: 1.25, dmg: 9, sfx: 'heavy', launch: 10, final: true, color: GREEN, fx: blast },
+        { at: 1.8 },
       ]);
       return !done;
     },
   },
 
-  millionSuns: {
+  theVoid: {
     update(f, g, t) {
-      const glow = f.rig.aura;
-      if (t < 0.6) {
-        f.setPose('charge');
-        f.vy = (1.6 - f.y) * 5; f.onGround = false; f.vx = 0;
-        if (glow) glow.intensity = t * 20;
-        if (!f.chargeFx) { f.chargeFx = true; g.audio.play('beam'); g.audio.play('ultstart', 0.6); }
-        g.fx.emit(f.chestPos(), { count: 5, color: 0xffd060, color2: 0xffffff, speed: -4, life: 0.4, size: 0.35, jitter: 3 });
-        return true;
+      const opp = g.opponentOf(f);
+      const V3 = THREE.Vector3;
+      f.rig.setVoid(1);
+      if (f.rig.aura) { f.rig.aura.color.set(0x8a10ff); f.rig.aura.intensity = 6 + Math.sin(t * 20) * 2; }
+      if (!f.tendrils) {
+        f.tendrils = [];
+        const m = new THREE.MeshStandardMaterial({ color: 0x020103, emissive: 0x24003c, emissiveIntensity: 0.5, roughness: 0.3, metalness: 0.2 });
+        for (let i = 0; i < 7; i++) { const mesh = new THREE.Mesh(new THREE.BufferGeometry(), m); mesh.castShadow = true; g.fx.group.add(mesh); f.tendrils.push({ mesh, i }); }
+        g.audio.play('roar', 1.2); g.audio.play('ultstart', 0.5); g.shake(0.6);
       }
-      f.vy = (1.6 - f.y) * 5;
-      f.setPose('castBoth');
-      const nova = (s) => {
-        const c = f.chestPos();
-        g.fx.ring(c.clone().setZ(0.4), 0xffe090, s.final ? 16 : 11, 0.6, 'face');
-        g.fx.ring(new THREE.Vector3(f.x, 0.05, 0), 0xffc040, s.final ? 14 : 9, 0.6);
-        g.fx.emit(c, { count: s.final ? 140 : 70, color: 0xffffff, color2: 0xffc040, speed: s.final ? 22 : 15, life: 0.7, size: 0.4 });
-        g.fx.flashLight(c, 0xffd070, s.final ? 40 : 24, 0.5);
-        g.audio.play('boom', s.final ? 1.3 : 0.9); g.audio.play('blast', 0.7);
-        g.shake(s.final ? 1.3 : 0.7);
-        g.zoneHit(f, { x0: -g.bounds - 2, x1: g.bounds + 2, y0: -1, y1: 8 }, { id: newHitId(), dmg: s.final ? 13 : 8.5, height: 'mid', stun: 0.5, blockstun: 0.35, push: s.final ? 8 : 3, knockdown: s.final, launch: s.final ? 10 : 0, kind: 'ult', sfx: 'heavy', color: 0xffd060, srcX: f.x, chip: 0.3, spark: s.final ? 2.5 : 1.5 });
-        if (s.final) g.hitstop(0.15);
-      };
-      if (glow) glow.intensity = 14 + Math.sin(t * 30) * 4;
-      const done = seq(f, [{ at: 0.75 }, { at: 1.15 }, { at: 1.6, final: true }, { at: 2.0, end: true }], t, (s) => { if (!s.end) nova(s); });
-      if (done) { if (glow) glow.intensity = 0; f.vy = 0; return false; }
+      g.fx.emit(f.chestPos(), { count: 3, color: 0x6a10c0, color2: 0xff2040, speed: 3, life: 0.6, size: 0.4, jitter: 1.2 });
+      const base = f.chestPos().add(new V3(-f.facing * 0.2, 0.15, -0.2));
+      let target, reach = 1;
+      if (!f.locked) {
+        f.setPose(t < 0.35 ? 'charge' : 'castBoth');
+        reach = THREE.MathUtils.clamp((t - 0.35) / 0.3, 0, 1) * (t > 1.0 ? Math.max(0, 1 - (t - 1.0) / 0.35) : 1);
+        target = opp.chestPos();
+        if (t > 0.62 && !f.fired) {
+          f.fired = true;
+          const x1 = f.x + f.facing * 10;
+          const r = g.zoneHit(f, { x0: Math.min(f.x, x1), x1: Math.max(f.x, x1), y0: 0, y1: 3 }, { id: newHitId(), dmg: 4, height: 'mid', stun: 0.9, blockstun: 0.4, push: 2, kind: 'ult', sfx: 'heavy', color: 0x9a20ff });
+          if (r === 'hit' && opp.hp > 0) { startLock(f, g, opp); g.audio.play('boom', 0.7); }
+        }
+        if (!f.locked && t > 1.4) { ULTIMATES.theVoid.cleanup(f, g); return false; }
+      } else {
+        f.setPose('castBoth');
+        const lt = t - f.lockT;
+        // lift and slam three times, then hurl
+        if (opp.state === 'locked') {
+          const k = Math.min(2, Math.floor(lt / 0.5)), ph = lt - k * 0.5;
+          const y = lt < 1.5 ? (ph < 0.3 ? (ph / 0.3) * 2.6 : Math.max(0, 2.6 * (1 - (ph - 0.3) / 0.1))) : 0;
+          opp.onGround = false; opp.y = y; opp.x = THREE.MathUtils.clamp(f.x + f.facing * 2.3, -g.bounds, g.bounds);
+        }
+        target = opp.chestPos();
+        const slam = () => { const p = new V3(opp.x, 0.05, 0); g.fx.ring(p, 0x9a20ff, 3, 0.4); g.fx.dust(p, 30); g.shake(0.7); g.audio.play('boom', 0.9); };
+        const done = lockCombo(f, g, t, [
+          { at: 0.4, dmg: 6, sfx: 'heavy', color: 0x9a20ff, fx: slam }, { at: 0.9, dmg: 6, sfx: 'heavy', color: 0x9a20ff, fx: slam }, { at: 1.4, dmg: 6, sfx: 'heavy', color: 0x9a20ff, fx: slam },
+          { at: 1.75, dmg: 9, sfx: 'heavy', launch: 12, final: true, color: 0xff2040, fx: () => { g.fx.ring(opp.chestPos(), 0xff2040, 4, 0.4, 'face'); } },
+          { at: 2.3 },
+        ]);
+        if (done) { ULTIMATES.theVoid.cleanup(f, g); return false; }
+      }
+      // tendrils: writhing tubes from the back to the target
+      const tt = performance.now() * 0.001;
+      for (const tn of f.tendrils) {
+        const i = tn.i;
+        const spread = new V3(Math.sin(i * 1.7) * 0.5, Math.cos(i * 2.3) * 0.45, Math.sin(i * 0.9) * 0.4);
+        const end = base.clone().lerp(target.clone().add(spread.clone().multiplyScalar(0.6)), reach);
+        const mid1 = base.clone().lerp(end, 0.33).add(new V3(0, 0.7 + Math.sin(tt * 6 + i) * 0.35, Math.cos(tt * 5 + i) * 0.5 - 0.3)).add(spread);
+        const mid2 = base.clone().lerp(end, 0.7).add(new V3(0, 0.35 + Math.sin(tt * 7 + i * 2) * 0.3, Math.sin(tt * 4 + i) * 0.4));
+        const curve = new THREE.CatmullRomCurve3([base.clone().add(spread.clone().multiplyScalar(0.3)), mid1, mid2, end]);
+        tn.mesh.geometry.dispose();
+        tn.mesh.geometry = new THREE.TubeGeometry(curve, 24, 0.045 + (i % 3) * 0.01, 6, false);
+      }
       return true;
     },
-    cleanup(f) { if (f.rig.aura) f.rig.aura.intensity = 0; },
+    cleanup(f, g) {
+      if (f.tendrils) { for (const tn of f.tendrils) { g.fx.group.remove(tn.mesh); tn.mesh.geometry.dispose(); } f.tendrils[0] && f.tendrils[0].mesh.material.dispose(); f.tendrils = null; }
+      f.rig.setVoid(0);
+      if (f.rig.aura) { f.rig.aura.color.set(0xffd070); f.rig.aura.intensity = 0; }
+    },
   },
+
 
   webBarrage: {
     update(f, g, t) {

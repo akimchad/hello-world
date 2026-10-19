@@ -97,6 +97,7 @@ export class Match {
     if (blocked) {
       let chip = hit.chip ?? 0.12;
       if (def.hero.id === 'cap' && !def.shieldOut) chip *= 0.3;
+      if (def.hero.id === 'doom') chip *= 0.5;
       const dmg = hit.dmg * att.hero.power * chip;
       def.hp = hit.kind === 'ult' ? Math.max(0, def.hp - dmg) : Math.max(Math.min(def.hp, 1), def.hp - dmg);
       def.enterBlockstun(hit.blockstun ?? 0.18, dir * ((hit.push ?? 2) * 0.55 + 0.8) / def.hero.weight);
@@ -288,9 +289,9 @@ export class Match {
       case 'intro': {
         const T = this.phaseT;
         if (!this.introStep) { this.introStep = 1; H.introCard(a.hero, 0); a.exprOverride = 'shout'; this.audio.say(a.hero.name); this.audio.play('roar', 0.3); }
-        if (this.introStep === 1 && T > 0.7) { this.introStep = 2; a.exprOverride = a.hero.id === 'doomsday' ? 'roar' : 'smile'; }
+        if (this.introStep === 1 && T > 0.7) { this.introStep = 2; a.exprOverride = a.hero.id === 'doom' ? 'roar' : 'smile'; }
         if (this.introStep === 2 && T > 1.5) { this.introStep = 3; a.exprOverride = null; H.introCard(b.hero, 1); b.exprOverride = 'shout'; this.audio.say(b.hero.name); this.audio.play('roar', 0.3); }
-        if (this.introStep === 3 && T > 2.2) { this.introStep = 4; b.exprOverride = b.hero.id === 'doomsday' ? 'roar' : 'smile'; }
+        if (this.introStep === 3 && T > 2.2) { this.introStep = 4; b.exprOverride = b.hero.id === 'doom' ? 'roar' : 'smile'; }
         if (T > 3.0) { b.exprOverride = null; H.introCard(null); this.phase = 'ready'; this.phaseT = 0; this.readyStep = 0; }
         break;
       }

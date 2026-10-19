@@ -108,7 +108,7 @@ class Rain {
     this.lines.frustumCulled = false;
     group.add(this.lines);
     const sp = new Float32Array(240 * 3);
-    this.splash = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(sp, 3)), new THREE.PointsMaterial({ color: 0x9fb4d0, size: 0.03, transparent: true, opacity: 0.35, depthWrite: false }));
+    this.splash = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(sp, 3)), new THREE.PointsMaterial({ color: 0x9fb4d0, size: 0.012, transparent: true, opacity: 0.3, depthWrite: false }));
     this.splash.frustumCulled = false; this.si = 0;
     group.add(this.splash);
   }

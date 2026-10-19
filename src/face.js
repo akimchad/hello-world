@@ -37,6 +37,11 @@ export function headPoint(x, y, z, p, out = new THREE.Vector3()) {
   r += p.jaw * 0.045 * (G(0.62, -0.55, 0.4, 0.25) + G(-0.62, -0.55, 0.4, 0.25));
   r += 0.04 * G(0, 0.35, -0.9, 0.5);
   r -= 0.03 * (G(0.78, 0.3, 0.35, 0.22) + G(-0.78, 0.3, 0.35, 0.22));
+  const fo = p.folds ?? 1, ho = p.hollow ?? 0.6;
+  r -= fo * 0.012 * (G3(0.2, -0.37, 0.92, 0.04, 0.09, 0.2) + G3(-0.2, -0.37, 0.92, 0.04, 0.09, 0.2));
+  r -= fo * 0.006 * G3(0, -0.33, 0.97, 0.025, 0.05, 0.2);
+  r -= ho * 0.02 * (G(0.55, -0.32, 0.75, 0.15) + G(-0.55, -0.32, 0.75, 0.15));
+  r += 0.008 * (G3(0.33, -0.03, 0.94, 0.1, 0.03, 0.2) + G3(-0.33, -0.03, 0.94, 0.1, 0.03, 0.2));
   if (p.ridges) r += p.ridges * (G(0.25, 0.55, 0.75, 0.12) + G(-0.25, 0.55, 0.75, 0.12) + G(0, 0.7, 0.6, 0.12));
   let px = x * r * p.wK, py = y * r * p.hK, pz = z * r * p.dK;
   if (y < 0) px *= 1 - p.taper * sstep(0, -0.95, y);
@@ -244,7 +249,7 @@ export function buildHead(rig, spec, ctx) {
     const eyeR = R * (p.eyeSize || 0.135);
     const irisTex = (() => {
       const c = makeCanvas(256, 128, (g2) => {
-        g2.fillStyle = '#f4f1ea'; g2.fillRect(0, 0, 256, 128);
+        g2.fillStyle = '#e8e0d4'; g2.fillRect(0, 0, 256, 128); const sg = g2.createRadialGradient(64, 64, 10, 64, 64, 90); sg.addColorStop(0, 'rgba(255,255,255,0.25)'); sg.addColorStop(1, 'rgba(160,90,80,0.35)'); g2.fillStyle = sg; g2.fillRect(0, 0, 256, 128);
         const cx = 64, cy = 64;
         const ir = 20;
         const iris = '#' + new THREE.Color(p.iris).getHexString();
@@ -255,6 +260,7 @@ export function buildHead(rig, spec, ctx) {
       return toTex(c);
     })();
     const eyeMat = new THREE.MeshPhysicalMaterial({ map: irisTex, roughness: 0.15, clearcoat: 1, clearcoatRoughness: 0.05, emissive: p.eyeGlow ? new THREE.Color(p.eyeGlow) : new THREE.Color(0), emissiveMap: p.eyeGlow ? irisTex : null, emissiveIntensity: p.eyeGlow ? 2.5 : 1 });
+    eyeMat.userData.emap = eyeMat.emissiveMap; eyeMat.userData.hadMap = true; face.eyeMat = eyeMat;
     for (const s of [1, -1]) {
       const dir = new THREE.Vector3(0.33 * s, 0.13, 0.935).normalize();
       const surf = local(dir.x, dir.y, dir.z);
@@ -266,6 +272,8 @@ export function buildHead(rig, spec, ctx) {
       const lidM = plainSkin;
       const lid = new THREE.Mesh(new THREE.SphereGeometry(eyeR * 1.1, 20, 10, 0, TAU, 0, Math.PI / 2), lidM);
       const lidG = new THREE.Group(); lidG.add(lid); eg.add(lidG); face.lids.push(lidG);
+      const lash = new THREE.Mesh(new THREE.TorusGeometry(eyeR * 1.1, eyeR * (p.lashes ?? 0.07), 4, 18, Math.PI * 0.8), new THREE.MeshStandardMaterial({ color: 0x140c08, roughness: 0.8 }));
+      lash.rotation.set(Math.PI / 2, 0, Math.PI * 0.1); lidG.add(lash);
       const low = new THREE.Mesh(new THREE.SphereGeometry(eyeR * 1.08, 20, 10, 0, TAU, Math.PI / 2, Math.PI / 2), lidM);
       const lowG = new THREE.Group(); lowG.add(low); eg.add(lowG); face.lower.push(lowG);
       // brow: a tube following the brow ridge
@@ -298,7 +306,8 @@ export function buildHead(rig, spec, ctx) {
       const c = local(dir.x, dir.y, dir.z, 1.012);
       const lg = new THREE.Group(); lg.position.copy(c);
       lg.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), c.clone().sub(hc).normalize());
-      const plane = new THREE.Mesh(new THREE.PlaneGeometry(R * 0.62, R * 0.62, 6, 6), m);
+      const ls = R * (p.lensSize || 0.62);
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(ls, ls, 6, 6), m);
       // bend the plane to the head curvature
       const pa = plane.geometry.attributes.position;
       for (let i = 0; i < pa.count; i++) { const x = pa.getX(i), y = pa.getY(i); pa.setZ(i, -(x * x + y * y) / (2 * R * 0.95)); }
@@ -361,4 +370,94 @@ export function buildHead(rig, spec, ctx) {
     if (face.glow && face.glowMat) face.glowMat.emissiveIntensity = 3 + c.brow * 2 + c.jaw * 3;
   };
   return face;
+}
+
+
+// ------------------------------------------------------------------
+// Strand hair: many tapered ribbons grown from the scalp, swept by gravity
+// and kept outside the skull. Merged into one mesh on the head bone.
+// ------------------------------------------------------------------
+const strandTexCache = new Map();
+function strandMaps(color, tip) {
+  const key = color + tip;
+  if (strandTexCache.has(key)) return strandTexCache.get(key);
+  const w = 64, h = 256;
+  const col = makeCanvas(w, h, (g) => {
+    g.fillStyle = color; g.fillRect(0, 0, w, h);
+    for (let x = 0; x < w; x += 2) { g.fillStyle = `rgba(${Math.random() < 0.5 ? '255,255,255' : '0,0,0'},${Math.random() * 0.25})`; g.fillRect(x, 0, 2, h); }
+    if (tip) { const gr = g.createLinearGradient(0, h * 0.5, 0, h); gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, tip); g.fillStyle = gr; g.fillRect(0, 0, w, h); }
+    const gr2 = g.createLinearGradient(0, 0, 0, h * 0.25); gr2.addColorStop(0, 'rgba(0,0,0,0.45)'); gr2.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr2; g.fillRect(0, 0, w, h);
+  });
+  const alpha = makeCanvas(w, h, (g) => {
+    g.fillStyle = '#000'; g.fillRect(0, 0, w, h);
+    for (let x = 1; x < w - 1; x += 2) {
+      const len = h * (0.6 + Math.random() * 0.4);
+      const gr = g.createLinearGradient(0, 0, 0, len); gr.addColorStop(0, '#fff'); gr.addColorStop(0.85, '#fff'); gr.addColorStop(1, '#000');
+      g.fillStyle = gr; g.fillRect(x, 0, 1.6, len);
+    }
+  });
+  const t = { map: toTex(col), alphaMap: toTex(alpha, { srgb: false }) };
+  strandTexCache.set(key, t);
+  return t;
+}
+
+export function hairStrands(rig, o) {
+  const face = rig.face, hc = rig.headCenter, p = face.p;
+  const R = (() => { let s2 = (o.seed || 1) * 9301 + 49297; return () => { s2 = (s2 * 9301 + 49297) % 233280; return s2 / 233280; }; })();
+  const count = o.count ?? 220, segs = o.segs ?? 9;
+  const front = o.front ?? 0.9, back = o.back ?? 2.2;
+  const hl = (ph) => front + (back - front) * (1 - Math.cos(ph)) / 2;
+  const pos = [], uv = [], idx = [];
+  const tmp = new THREE.Vector3();
+  const radiusAt = (d) => headPoint(d.x, d.y, d.z, p, tmp).length();
+  for (let i = 0; i < count; i++) {
+    const ph = (R() * 2 - 1) * Math.PI;
+    const tmax = hl(ph) * (o.cover ?? 1);
+    const th = Math.acos(1 - R() * (1 - Math.cos(tmax)));
+    if (Math.abs(Math.abs(ph) - Math.PI / 2) < 0.35 && th > 1.25 && !o.overEars) continue;
+    const dir = new THREE.Vector3(Math.sin(th) * Math.sin(ph), Math.cos(th), Math.sin(th) * Math.cos(ph));
+    const root = headPoint(dir.x, dir.y, dir.z, p, new THREE.Vector3()).multiplyScalar(0.99);
+    let nrm = root.clone().normalize();
+    // flow: back and down, with a parted fringe sweeping to the sides
+    const flow = new THREE.Vector3(Math.sin(ph) * (o.side ?? 0.3), -(o.down ?? 1), -(o.sweep ?? 0.6));
+    if (o.flowFn) o.flowFn(flow, ph, th);
+    let d = flow.clone().sub(nrm.clone().multiplyScalar(flow.dot(nrm)));
+    if (d.lengthSq() < 1e-6) d.set(0, -1, 0);
+    d.normalize();
+    const L = (o.length ?? 0.15) * (1 - (o.lengthVar ?? 0.35) * R()) * (o.lenFn ? o.lenFn(ph, th) : 1);
+    const pts = [root.clone().addScaledVector(nrm, o.lift ?? 0.004)];
+    let q = pts[0].clone();
+    for (let k = 1; k <= segs; k++) {
+      q = q.clone().addScaledVector(d, L / segs);
+      // stay outside the head (plus volume)
+      const rel = q.clone();
+      const rd = rel.clone().normalize();
+      const minR = radiusAt(rd) * (1.03 + (o.volume ?? 0.04) * (1 - k / segs * 0.5));
+      if (rel.length() < minR && q.y > -p.R * 1.2) q.copy(rd.multiplyScalar(minR));
+      d.add(new THREE.Vector3(0, -(o.gravity ?? 0.35), 0)).normalize();
+      if (o.curl) d.applyAxisAngle(new THREE.Vector3(0, 1, 0), o.curl * (R() - 0.5));
+      pts.push(q);
+    }
+    const base = pos.length / 3;
+    const w0 = (o.width ?? 0.024) * (0.7 + R() * 0.6);
+    for (let k = 0; k <= segs; k++) {
+      const a = pts[k], b = pts[Math.min(segs, k + 1)], c0 = pts[Math.max(0, k - 1)];
+      const tan = b.clone().sub(c0).normalize();
+      const out = a.clone().normalize();
+      const side = new THREE.Vector3().crossVectors(tan, out).normalize().multiplyScalar(w0 * (1 - 0.65 * k / segs));
+      pos.push(a.x - side.x + hc.x, a.y - side.y + hc.y, a.z - side.z + hc.z, a.x + side.x + hc.x, a.y + side.y + hc.y, a.z + side.z + hc.z);
+      const u0 = R() * 0.8;
+      uv.push(u0, 1 - k / segs, u0 + 0.2, 1 - k / segs);
+    }
+    for (let k = 0; k < segs; k++) { const a = base + k * 2; idx.push(a, a + 1, a + 3, a, a + 3, a + 2); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals();
+  const maps = strandMaps(o.color, o.tip || '');
+  const m = new THREE.MeshPhysicalMaterial({ map: maps.map, alphaMap: maps.alphaMap, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.5, sheen: 0.6, sheenColor: new THREE.Color(0xffffff), sheenRoughness: 0.4 });
+  const mesh = new THREE.Mesh(g, m); mesh.castShadow = true;
+  rig.J.head.add(mesh);
+  return mesh;
 }
