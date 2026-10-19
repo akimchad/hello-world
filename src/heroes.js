@@ -88,6 +88,7 @@ function stitches(g, M, pts, color) { g.setLineDash([3, 4]); line(g, M, pts, col
 // physical materials for props
 const metal = (c, r = 0.3, m = 0.9, o = {}) => new THREE.MeshPhysicalMaterial({ color: c, roughness: r, metalness: m, clearcoat: o.cc ?? 0.3, ...o.extra });
 const cloth = (c, r = 0.8, o = {}) => new THREE.MeshPhysicalMaterial({ color: c, roughness: r, sheen: o.sheen ?? 0.6, sheenColor: new THREE.Color(o.sheenColor ?? 0xffffff), sheenRoughness: 0.5, side: o.side ?? THREE.FrontSide, map: o.map || null, normalMap: o.normalMap || null });
+const skinCloth = (c, r = 0.55) => { const m = new THREE.MeshPhysicalMaterial({ color: c, roughness: r, sheen: 0.35, sheenColor: new THREE.Color(0xffc0a0) }); m.userData.skin = true; return m; };
 const glowM = (c, i = 3) => new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: i, roughness: 0.3 });
 const mesh = (geo, m, parent, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => {
   const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.rotation.set(rx, ry, rz); o.scale.set(sx, sy, sz); o.castShadow = true; o.receiveShadow = true; parent.add(o); return o;
@@ -323,8 +324,8 @@ function buildThor(alt) {
     dims: { shoulderW: 0.27, chestK: 1.18, waistK: 1.05, hipK: 1.02, armK: 1.18, legK: 1.1, muscle: 1.35, depthK: 1.08, neckK: 1.15, headR: 0.118 },
     materials: (d) => ({
       torso: partMaterial(K + 't', { rough: 0.55, metal: 0.25, sheen: 0.3, strength: 4, paint: (g, w, h) => armorPaint(g, w, h, tMap(w, h)), height: (g, w, h) => armorH(g, w, h, tMap(w, h)) }),
-      neck: partMaterial(K + 'n', { rough: 0.55, sheen: 0.4, sheenColor: 0xffc0a0, paint: (g, w, h) => { g.fillStyle = '#d6a07c'; g.fillRect(0, 0, w, h); } }),
-      arm: () => partMaterial(K + 'a', { rough: 0.55, sheen: 0.4, sheenColor: 0xffc0a0, strength: 3,
+      neck: partMaterial(K + 'n', { skin: true, rough: 0.55, sheen: 0.4, sheenColor: 0xffc0a0, paint: (g, w, h) => { g.fillStyle = '#d6a07c'; g.fillRect(0, 0, w, h); } }),
+      arm: () => partMaterial(K + 'a', { skin: true, rough: 0.55, sheen: 0.4, sheenColor: 0xffc0a0, strength: 3,
         paint: (g, w, h) => { const m = aMap(d)(w, h); g.fillStyle = '#d6a07c'; g.fillRect(0, 0, w, h); overlayNoise(g, w, h, noiseCanvas(128, 24, 3, 3), 0.2);
           regions(g, w, h, m, (th, y) => (y < -(d.upper + 0.03) ? rgb(LEATH) : y > 0.02 ? rgb(ARM) : null));
           for (let y = -(d.upper + 0.06); y > -(d.upper + d.fore - 0.03); y -= 0.035) for (let t = -3; t < 3.2; t += 0.5) { g.fillStyle = '#9aa0a8'; g.beginPath(); g.arc(m.X(t), m.Y(y), 3, 0, TAU); g.fill(); }
@@ -334,7 +335,7 @@ function buildThor(alt) {
         paint: (g, w, h) => { const m = lMap(d)(w, h); g.fillStyle = LEATH; g.fillRect(0, 0, w, h); overlayNoise(g, w, h, noiseCanvas(128, 16, 5, 4), 0.3); stitches(g, m, [[2.2, 0], [2.2, -0.8]], '#3a3a3a'); stitches(g, m, [[-2.2, 0], [-2.2, -0.8]], '#3a3a3a');
           regions(g, w, h, m, (th, y) => (y < -(d.thigh + 0.12) ? rgb('#141215') : null)); ring(g, m, -(d.thigh + 0.12), '#2a2a2a', 6); },
         height: (g, w, h) => { const m = lMap(d)(w, h); ring(g, m, -(d.thigh + 0.12), '#e0e0e0', 6); } }),
-      hand: () => cloth(SKIN, 0.55, { sheenColor: 0xffc0a0 }),
+      hand: () => skinCloth(SKIN, 0.55),
       foot: () => cloth(0x141215, 0.7),
       sole: cloth(0x0c0c0c, 0.9),
     }),
@@ -380,7 +381,7 @@ function buildThor(alt) {
 function buildHulk(alt) {
   const SKIN = alt ? '#8a8f96' : '#4f8a2c', DARK = alt ? '#5a5e66' : '#2f5a18', SHORTS = alt ? '#22222c' : '#4a2a6e';
   const K = 'hulk' + (alt ? 'A' : '');
-  const skinPart = (key, M, extra) => partMaterial(key, { rough: 0.6, sheen: 0.45, sheenColor: alt ? 0xb0b0c0 : 0xa0ff80, strength: 5,
+  const skinPart = (key, M, extra) => partMaterial(key, { skin: true, rough: 0.6, sheen: 0.45, sheenColor: alt ? 0xb0b0c0 : 0xa0ff80, strength: 5,
     paint: (g, w, h) => { g.fillStyle = SKIN; g.fillRect(0, 0, w, h); overlayNoise(g, w, h, noiseCanvas(128, 12, 21, 4), 0.35); veins(g, w, h, 9, 'rgba(40,70,40,0.35)', 14, 2.5); extra && extra(g, w, h, M(w, h)); },
     height: (g, w, h) => { veins(g, w, h, 9, '#c8c8c8', 14, 3); overlayNoise(g, w, h, noiseCanvas(128, 24, 22, 2), 0.08); } });
   const shortsT = (th, y) => y < 0.02 + 0.015 * Math.sin(th * 7);
@@ -391,7 +392,7 @@ function buildHulk(alt) {
       neck: skinPart(K + 'n', (w, h) => mapper(w, h, 0, 1)),
       arm: () => skinPart(K + 'a', aMap(d)),
       leg: () => skinPart(K + 'l', lMap(d), (g, w, h, m) => regions(g, w, h, m, (th, y) => (y > -0.22 + 0.04 * Math.sin(th * 9) + 0.02 * Math.sin(th * 23) ? rgb(SHORTS) : null))),
-      hand: () => cloth(new THREE.Color(SKIN).getHex(), 0.6, { sheenColor: 0xa0ff80 }),
+      hand: () => skinCloth(new THREE.Color(SKIN).getHex(), 0.6),
       foot: () => cloth(new THREE.Color(SKIN).getHex(), 0.65),
       sole: cloth(new THREE.Color(DARK).getHex(), 0.8),
     }),
@@ -517,14 +518,14 @@ function buildGamora(alt) {
         line(g, m, [[-0.35, 0.3], [0, 0.22], [0.35, 0.3]], H ? '#e0e0e0' : TRIM, 4);
         if (!H) ring(g, m, 0.0, '#3a3040', 14);
       }),
-      neck: partMaterial(K + 'n', { rough: 0.5, sheen: 0.4, paint: (g, w, h) => { g.fillStyle = '#' + new THREE.Color(SKIN).getHexString(); g.fillRect(0, 0, w, h); } }),
+      neck: partMaterial(K + 'n', { skin: true, rough: 0.5, sheen: 0.4, paint: (g, w, h) => { g.fillStyle = '#' + new THREE.Color(SKIN).getHexString(); g.fillRect(0, 0, w, h); } }),
       arm: () => leather(K + 'a', aMap(d), (g, w, h, m, H) => {
         if (!H) regions(g, w, h, m, (th, y) => (y > -0.12 ? rgb('#' + new THREE.Color(SKIN).getHexString()) : null));
         ring(g, m, -0.12, H ? '#e0e0e0' : TRIM, 5);
         ring(g, m, -(d.upper + d.fore * 0.5), H ? '#e0e0e0' : TRIM, 4);
       }),
       leg: () => leather(K + 'l', lMap(d), (g, w, h, m, H) => { stitches(g, m, [[1.57, 0], [1.57, -0.9]], H ? '#e0e0e0' : '#5a4a60'); ring(g, m, -(d.thigh - 0.04), H ? '#e0e0e0' : '#0c080e', 4); }),
-      hand: () => cloth(SKIN, 0.5), foot: () => cloth(alt ? 0x2a0a14 : 0x15101a, 0.45), sole: cloth(0x0a0a0a, 0.9),
+      hand: () => skinCloth(SKIN, 0.5), foot: () => cloth(alt ? 0x2a0a14 : 0x15101a, 0.45), sole: cloth(0x0a0a0a, 0.9),
     }),
     head: { type: 'skin', key: K, skin: SKIN, lip: alt ? 0x4a2a6a : 0x2e4a3a, iris: 0x8a5a2a, brows: 0x1a1020, browThick: 0.75, jaw: 0.8, chin: 0.85, taper: 0.32, brow: 0.6, nose: 0.85, cheek: 1.3, wK: 0.8,
       paint: (g, w, h, H) => { g.strokeStyle = TRIM; g.lineWidth = 2; for (const s of [-1, 1]) { const [x1, y1] = H.at(0.62 * s, 0.05, 0.78), [x2, y2] = H.at(0.45 * s, -0.25, 0.86); g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); const [x3, y3] = H.at(0.55 * s, 0.32, 0.77), [x4, y4] = H.at(0.68 * s, 0.12, 0.72); g.beginPath(); g.moveTo(x3, y3); g.lineTo(x4, y4); g.stroke(); } } },

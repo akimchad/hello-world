@@ -194,7 +194,9 @@ export function buildHead(rig, spec, ctx) {
     return new THREE.MeshPhysicalMaterial({ map: tex.map, normalMap: tex.normalMap, roughness: p.rough, metalness: p.metal || 0, sheen: p.sheen, sheenColor: new THREE.Color(0xffd0c0), sheenRoughness: 0.5, clearcoat: p.clearcoat || 0, emissive: new THREE.Color(tex.emissiveMap ? 0xffffff : 0), emissiveMap: tex.emissiveMap || null });
   })();
   face.skinMat = skinMat;
-  const plainSkin = new THREE.MeshStandardMaterial({ color: p.skin, roughness: 0.6 });
+  if (p.type === 'skin') skinMat.userData.skin = true;
+  const plainSkin = new THREE.MeshPhysicalMaterial({ color: p.skin, roughness: 0.6, sheen: 0.3, sheenColor: new THREE.Color(0xffc0a0) });
+  plainSkin.userData.skin = true;
 
   // ---------- skinned head ----------
   const { g, dirs, ringOf, k } = headGeometry(p);
@@ -407,7 +409,7 @@ export function hairStrands(rig, o) {
   const count = o.count ?? 220, segs = o.segs ?? 9;
   const front = o.front ?? 0.9, back = o.back ?? 2.2;
   const hl = (ph) => front + (back - front) * (1 - Math.cos(ph)) / 2;
-  const pos = [], uv = [], idx = [];
+  const pos = [], uv = [], idx = [], tip = [];
   const tmp = new THREE.Vector3();
   const radiusAt = (d) => headPoint(d.x, d.y, d.z, p, tmp).length();
   for (let i = 0; i < count; i++) {
@@ -448,16 +450,54 @@ export function hairStrands(rig, o) {
       pos.push(a.x - side.x + hc.x, a.y - side.y + hc.y, a.z - side.z + hc.z, a.x + side.x + hc.x, a.y + side.y + hc.y, a.z + side.z + hc.z);
       const u0 = R() * 0.8;
       uv.push(u0, 1 - k / segs, u0 + 0.2, 1 - k / segs);
+      tip.push(k / segs, k / segs);
     }
     for (let k = 0; k < segs; k++) { const a = base + k * 2; idx.push(a, a + 1, a + 3, a, a + 3, a + 2); }
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('aTip', new THREE.Float32BufferAttribute(tip, 1));
   g.setIndex(idx); g.computeVertexNormals();
   const maps = strandMaps(o.color, o.tip || '');
   const m = new THREE.MeshPhysicalMaterial({ map: maps.map, alphaMap: maps.alphaMap, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.5, sheen: 0.6, sheenColor: new THREE.Color(0xffffff), sheenRoughness: 0.4 });
+  const sway = { value: new THREE.Vector3() };
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uSway = sway;
+    sh.vertexShader = 'uniform vec3 uSway; attribute float aTip;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n transformed += uSway * aTip * aTip;');
+  };
+  m.customProgramCacheKey = () => 'hairSway';
   const mesh = new THREE.Mesh(g, m); mesh.castShadow = true;
   rig.J.head.add(mesh);
+  // spring that lags behind head motion and pulls tips toward gravity
+  const L = o.length ?? 0.15;
+  const sim = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), off: new THREE.Vector3(), offV: new THREE.Vector3(), inited: false };
+  const q = new THREE.Quaternion(), hp = new THREE.Vector3(), tmpV = new THREE.Vector3();
+  rig.hairSims = rig.hairSims || [];
+  rig.hairSims.push((dt) => {
+    if (dt <= 0) return;
+    rig.J.head.getWorldPosition(hp);
+    if (!sim.inited || hp.distanceTo(sim.pos) > 1) { sim.pos.copy(hp); sim.vel.set(0, 0, 0); sim.inited = true; }
+    const nv = tmpV.copy(hp).sub(sim.pos).divideScalar(dt);
+    const acc = nv.clone().sub(sim.vel).divideScalar(Math.max(dt, 1 / 120));
+    if (!Number.isFinite(acc.x + acc.y + acc.z)) acc.set(0, 0, 0);
+    sim.vel.copy(nv); sim.pos.copy(hp);
+    rig.J.head.getWorldQuaternion(q);
+    const invQ = q.clone().invert();
+    // target offset (world): inertia + gravity correction for a tilted head
+    const down = new THREE.Vector3(0, -1, 0).applyQuaternion(invQ);
+    const target = acc.clampLength(0, 60).multiplyScalar(-0.0012 * L / 0.15).applyQuaternion(invQ).add(down.add(new THREE.Vector3(0, 1, 0)).multiplyScalar(L * 0.45));
+    const k = 120, c = 9;
+    const steps = Math.min(10, Math.ceil(dt / (1 / 120)));
+    const h = dt / steps;
+    for (let i = 0; i < steps; i++) {
+      // semi-implicit Euler at a small fixed step stays stable
+      sim.offV.addScaledVector(target.clone().sub(sim.off).multiplyScalar(k).sub(sim.offV.clone().multiplyScalar(c)), h);
+      sim.off.addScaledVector(sim.offV, h);
+    }
+    sim.off.clampLength(0, L * 0.8);
+    if (!Number.isFinite(sim.off.x + sim.off.y + sim.off.z + sim.offV.x + sim.offV.y + sim.offV.z)) { sim.off.set(0, 0, 0); sim.offV.set(0, 0, 0); sim.vel.set(0, 0, 0); }
+    sway.value.copy(sim.off);
+  });
   return mesh;
 }

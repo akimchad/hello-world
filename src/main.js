@@ -5,7 +5,6 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { HEROES, heroById } from './heroes.js';
 import { STAGES, buildArena, makeEnvironment } from './arenas.js';
 import { POSES, lerpPose, clonePose, addTo } from './rig.js';
@@ -14,6 +13,9 @@ import { CpuInput } from './ai.js';
 import { Audio } from './audio.js';
 import { Match } from './game.js';
 import { HUD } from './hud.js';
+import { DepthPrepass, makeLensPass, makeGradePass, Cine } from './post.js';
+import { PlanarReflection } from './reflect.js';
+import { setRim } from './enhance.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -38,35 +40,44 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const msaaTarget = new THREE.WebGLRenderTarget(innerWidth, innerHeight, { type: THREE.HalfFloatType, samples: 4 });
 const composer = new EffectComposer(renderer, msaaTarget);
 const renderPass = new RenderPass(new THREE.Scene(), new THREE.PerspectiveCamera());
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.5, 0.88);
-const grade = new ShaderPass({
-  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, vignette: { value: 0.55 } },
-  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float time; uniform float vignette; varying vec2 vUv;
-    void main(){ vec4 c = texture2D(tDiffuse, vUv); vec3 col = c.rgb;
-      float l = dot(col, vec3(0.299, 0.587, 0.114)); col = mix(vec3(l), col, 1.03); col = (col - 0.5) * 1.05 + 0.5;
-      col *= vec3(1.02, 1.0, 0.98);
-      vec2 d = vUv - 0.5; col *= 1.0 - vignette * dot(d, d) * 1.5;
-      float n = fract(sin(dot(vUv * 937.0 + time, vec2(12.9898, 78.233))) * 43758.5453); col += (n - 0.5) * 0.022;
-      gl_FragColor = vec4(col, c.a); }`,
-});
+const depthPre = new DepthPrepass();
+const lens = makeLensPass(depthPre);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.5, 0.55, 0.86);
+const grade = makeGradePass();
+const cine = new Cine(lens, grade);
 composer.addPass(renderPass);
+composer.addPass(lens);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 composer.addPass(grade);
 
 function applyQuality() {
   const q = settings.quality;
-  const dpr = Math.min(window.devicePixelRatio || 1, q === 'high' ? 2 : q === 'medium' ? 1.5 : 1);
+  const dpr = Math.min(window.devicePixelRatio || 1, q === 'ultra' ? 1.5 : q === 'high' ? 1.25 : q === 'medium' ? 1.25 : 1);
   renderer.setPixelRatio(dpr);
   renderer.setSize(innerWidth, innerHeight);
   composer.setPixelRatio(dpr);
   composer.setSize(innerWidth, innerHeight);
+  depthPre.setSize(innerWidth * dpr, innerHeight * dpr);
+  lens.uniforms.resolution.value.set(innerWidth * dpr, innerHeight * dpr);
   renderer.shadowMap.enabled = q !== 'low';
   renderer.shadowMap.needsUpdate = true;
-  bloom.enabled = q === 'high';
-  // materials must recompile when shadows toggle
-  for (const s of [showcase && showcase.scene, match && match.scene]) if (s) s.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.needsUpdate = true; }); });
+  bloom.enabled = q !== 'low';
+  lens.enabled = q === 'high' || q === 'ultra';
+  for (const s of [showcase && showcase.scene, match && match.scene]) if (s) {
+    if (s.userData.reflection) s.userData.reflection.setSize(innerWidth * dpr, innerHeight * dpr);
+    s.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.needsUpdate = true; }); });
+  }
+}
+
+// planar reflections for arenas that have a reflective floor (high quality only)
+function attachReflection(scene, arena) {
+  if (!arena.reflectFloor || settings.quality !== 'ultra') return null;
+  const r = new PlanarReflection(arena.reflectFloor.mesh, { strength: arena.reflectFloor.strength ?? 1 });
+  const dpr = renderer.getPixelRatio();
+  r.setSize(innerWidth * dpr, innerHeight * dpr);
+  scene.userData.reflection = r;
+  return r;
 }
 
 // ---------------------------------------------------------------- systems
@@ -96,6 +107,7 @@ class Showcase {
     this.scene.fog = this.arena.fog;
     this.arena.envRT = makeEnvironment(renderer, this.arena);
     this.scene.environment = this.arena.envRT.texture;
+    attachReflection(this.scene, this.arena);
     this.rigs = [null, null];
     this.ids = [null, null];
     this.pose = [clonePose(POSES.idle), clonePose(POSES.idle)];
@@ -143,9 +155,12 @@ class Showcase {
     this.camPos.lerp(pos, 1 - Math.exp(-3 * dt));
     this.camera.position.copy(this.camPos);
     this.camera.lookAt(look);
+    setRim(this.arena.rimColor ?? 0x7fb8ff, this.arena.rimStrength ?? 0.5);
+    cine.setFocus(this.camera.position.distanceTo(look) * (this.mode === 'stage' ? 1.4 : 1), this.mode === 'stage' ? 14 : 4.5);
+    cine.letterbox(false);
   }
   resize(w, h) { this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); }
-  dispose() { this.arena.dispose(); this.rigs.forEach((r) => r && disposeTree(r.root)); }
+  dispose() { this.scene.userData.reflection && this.scene.userData.reflection.dispose(); this.arena.dispose(); this.rigs.forEach((r) => r && disposeTree(r.root)); }
 }
 
 function disposeTree(o) {
@@ -415,15 +430,17 @@ function startMatch(opts = {}) {
   const inputs = [cpu[0] ? cpuInputs[0] : humanInputs[0], cpu[1] ? cpuInputs[1] : humanInputs[1]];
   app.lastMatch = { cpu };
   match = new Match({
-    heroes, stageId: STAGES[app.stage].id, cpu, settings: { ...settings }, audio, inputs, hud, renderer,
+    heroes, stageId: STAGES[app.stage].id, cpu, settings: { ...settings }, audio, inputs, hud, renderer, cine,
     onEnd: (res) => setTimeout(() => showVictory(res), 1600),
   });
   match.resize(innerWidth, innerHeight);
+  attachReflection(match.scene, match.arena);
   setMain('fight');
   audio.play('confirm');
 }
 function endMatch() {
-  if (match) { match.dispose(); match = null; }
+  if (match) { match.scene.userData.reflection && match.scene.userData.reflection.dispose(); match.dispose(); match = null; }
+  cine.reset();
   window.speechSynthesis && window.speechSynthesis.cancel();
 }
 function showVictory(res) {
@@ -615,13 +632,18 @@ function frame(now) {
   }
   if (!scene) return;
   grade.uniforms.time.value = (now * 0.001) % 100;
+  cine.update(dt);
+  if (settings.quality === 'high' || settings.quality === 'ultra') {
+    if (scene.userData.reflection) scene.userData.reflection.update(renderer, scene, camera);
+    depthPre.render(renderer, scene, camera);
+    lens.uniforms.cameraNear.value = camera.near; lens.uniforms.cameraFar.value = camera.far;
+  }
   if (settings.quality !== 'low') { renderPass.scene = scene; renderPass.camera = camera; composer.render(dt); }
   else renderer.render(scene, camera);
 }
 
 window.addEventListener('resize', () => {
-  renderer.setSize(innerWidth, innerHeight);
-  composer.setSize(innerWidth, innerHeight);
+  applyQuality();
   showcase && showcase.resize(innerWidth, innerHeight);
   match && match.resize(innerWidth, innerHeight);
 });

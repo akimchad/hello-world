@@ -14,6 +14,15 @@ export class HUD {
   }
 
   setup(match) {
+    // portraits: copy the rendered character-select portraits into the HUD frames
+    const cards = [...document.querySelectorAll('.card')];
+    match.fighters.forEach((f, i) => {
+      const dst = document.getElementById('port' + (i + 1));
+      const card = cards.find((c) => c.querySelector('.card-name')?.textContent === f.hero.name);
+      const src = card && card.querySelector('canvas');
+      if (dst && src) { const g = dst.getContext('2d'); g.clearRect(0, 0, dst.width, dst.height); g.drawImage(src, 0, 0, dst.width, dst.height); }
+    });
+    this.roundLabel('ROUND 1');
     match.fighters.forEach((f, i) => { this.el.name[i].textContent = f.hero.name.toUpperCase() + (f.cpu ? ' (CPU)' : ''); });
     this.pips(match);
     this.el.combo.forEach((c) => c.classList.remove('show'));
@@ -75,6 +84,8 @@ export class HUD {
     c.classList.add('show');
     this.comboT[side] = 1.3;
   }
+
+  roundLabel(t) { const el = document.getElementById('round-label'); if (el) el.textContent = t; }
 
   introCard(hero, side) {
     const c = document.getElementById('intro-card');

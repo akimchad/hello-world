@@ -105,7 +105,7 @@ class Rain {
     this.geo = new THREE.BufferGeometry();
     this.geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
     this.lines = new THREE.LineSegments(this.geo, new THREE.LineBasicMaterial({ color: 0xa8c0e0, transparent: true, opacity: 0.32, depthWrite: false }));
-    this.lines.frustumCulled = false;
+    this.lines.frustumCulled = false; this.lines.userData.noReflect = true;
     group.add(this.lines);
     const sp = new Float32Array(240 * 3);
     this.splash = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(sp, 3)), new THREE.PointsMaterial({ color: 0x9fb4d0, size: 0.012, transparent: true, opacity: 0.3, depthWrite: false }));
@@ -160,6 +160,95 @@ function windowTexture(seed, { cols = 12, rows = 28, lit = 0.33, frame = '#1a1d2
     }
     g.fillStyle = frame; for (let c = 0; c <= cols; c++) g.fillRect(c * cw - 1, 0, 2, h);
   });
+}
+
+// ------------------------------------------------------------------
+// atmosphere: particles (fire, embers, smoke, steam, sparks) and shafts
+// ------------------------------------------------------------------
+class Particles {
+  constructor(group, { max = 300, additive = true, smoke = false, scale = 420 } = {}) {
+    this.max = max; this.n = 0; this.next = 0;
+    this.p = new Float32Array(max * 3); this.v = new Float32Array(max * 3);
+    this.c0 = new Float32Array(max * 3); this.c1 = new Float32Array(max * 3);
+    this.life = new Float32Array(max); this.maxLife = new Float32Array(max); this.s0 = new Float32Array(max); this.s1 = new Float32Array(max);
+    this.drag = new Float32Array(max); this.grav = new Float32Array(max); this.a0 = new Float32Array(max);
+    const g = new THREE.BufferGeometry();
+    this.aPos = new Float32Array(max * 3); this.aCol = new Float32Array(max * 3); this.aSize = new Float32Array(max); this.aAlpha = new Float32Array(max); this.aSeed = new Float32Array(max);
+    for (let i = 0; i < max; i++) this.aSeed[i] = Math.random();
+    g.setAttribute('position', new THREE.BufferAttribute(this.aPos, 3).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('aCol', new THREE.BufferAttribute(this.aCol, 3).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('aSize', new THREE.BufferAttribute(this.aSize, 1).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('aAlpha', new THREE.BufferAttribute(this.aAlpha, 1).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('aSeed', new THREE.BufferAttribute(this.aSeed, 1));
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uScale: { value: scale }, uTime: { value: 0 } },
+      vertexShader: `attribute vec3 aCol; attribute float aSize; attribute float aAlpha; attribute float aSeed; varying vec3 vC; varying float vA; varying float vS; uniform float uScale;
+        void main(){ vC = aCol; vA = aAlpha; vS = aSeed; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_PointSize = aSize * uScale / -mv.z; gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: `varying vec3 vC; varying float vA; varying float vS; uniform float uTime;
+        float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f); return mix(mix(h(i), h(i+vec2(1,0)), f.x), mix(h(i+vec2(0,1)), h(i+vec2(1,1)), f.x), f.y); }
+        void main(){ vec2 d = gl_PointCoord - 0.5; float r = length(d); if (r > 0.5) discard;
+          float a = smoothstep(0.5, 0.0, r);
+          ${smoke ? 'vec2 q = gl_PointCoord * 3.0 + vS * 17.0; a *= 0.45 + 0.75 * (n(q) * 0.6 + n(q * 2.3 + uTime * 0.2) * 0.4);' : 'a = a * a;'}
+          gl_FragColor = vec4(vC ${smoke ? '' : '* (1.0 + a)'}, a * vA); }`,
+      transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+    });
+    this.points = new THREE.Points(g, mat);
+    this.points.frustumCulled = false;
+    this.points.userData.noReflect = true;
+    group.add(this.points);
+    this.t = 0;
+  }
+  emit(pos, vel, { life = 1, size = 0.3, size1 = null, color = 0xffffff, color1 = null, alpha = 1, drag = 0.5, gravity = 0 } = {}) {
+    const i = this.next; this.next = (this.next + 1) % this.max;
+    this.p.set([pos.x, pos.y, pos.z], i * 3); this.v.set([vel.x, vel.y, vel.z], i * 3);
+    const c0 = new THREE.Color(color), c1 = new THREE.Color(color1 ?? color);
+    this.c0.set([c0.r, c0.g, c0.b], i * 3); this.c1.set([c1.r, c1.g, c1.b], i * 3);
+    this.life[i] = this.maxLife[i] = life; this.s0[i] = size; this.s1[i] = size1 ?? size; this.drag[i] = drag; this.grav[i] = gravity; this.a0[i] = alpha;
+  }
+  update(dt) {
+    this.t += dt; this.points.material.uniforms.uTime.value = this.t;
+    for (let i = 0; i < this.max; i++) {
+      if (this.life[i] <= 0) { this.aAlpha[i] = 0; continue; }
+      this.life[i] -= dt;
+      const k = 1 - Math.max(0, this.life[i]) / this.maxLife[i];
+      const i3 = i * 3, dr = Math.max(0, 1 - this.drag[i] * dt);
+      this.v[i3] *= dr; this.v[i3 + 1] = this.v[i3 + 1] * dr + this.grav[i] * dt; this.v[i3 + 2] *= dr;
+      this.p[i3] += this.v[i3] * dt; this.p[i3 + 1] += this.v[i3 + 1] * dt; this.p[i3 + 2] += this.v[i3 + 2] * dt;
+      this.aPos[i3] = this.p[i3]; this.aPos[i3 + 1] = this.p[i3 + 1]; this.aPos[i3 + 2] = this.p[i3 + 2];
+      for (let c = 0; c < 3; c++) this.aCol[i3 + c] = this.c0[i3 + c] + (this.c1[i3 + c] - this.c0[i3 + c]) * k;
+      this.aSize[i] = this.s0[i] + (this.s1[i] - this.s0[i]) * k;
+      this.aAlpha[i] = this.a0[i] * Math.min(1, k * 6) * (1 - k);
+    }
+    const g = this.points.geometry;
+    g.attributes.position.needsUpdate = true; g.attributes.aCol.needsUpdate = true; g.attributes.aSize.needsUpdate = true; g.attributes.aAlpha.needsUpdate = true;
+  }
+}
+
+// volumetric light shaft: a soft additive cone with drifting dust noise
+function lightShaft(group, { from, to, r0 = 0.15, r1 = 1.8, color = 0xfff0d0, intensity = 0.35 }) {
+  const dir = to.clone().sub(from); const len = dir.length();
+  const geo = new THREE.CylinderGeometry(r0, r1, len, 32, 1, true); geo.translate(0, -len / 2, 0);
+  const m = new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color(color) }, uI: { value: intensity }, uTime: { value: 0 } },
+    vertexShader: `varying vec2 vUv; varying float vEdge; varying vec3 vW;
+      void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vec3 n = normalize(mat3(modelMatrix) * normal); vec3 v = normalize(cameraPosition - w.xyz); vEdge = abs(dot(n, v)); gl_Position = projectionMatrix * viewMatrix * w; }`,
+    fragmentShader: `uniform vec3 uColor; uniform float uI; uniform float uTime; varying vec2 vUv; varying float vEdge; varying vec3 vW;
+      float h(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+      float n3(vec3 p){ vec3 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+        return mix(mix(mix(h(i), h(i+vec3(1,0,0)), f.x), mix(h(i+vec3(0,1,0)), h(i+vec3(1,1,0)), f.x), f.y), mix(mix(h(i+vec3(0,0,1)), h(i+vec3(1,0,1)), f.x), mix(h(i+vec3(0,1,1)), h(i+vec3(1,1,1)), f.x), f.y), f.z); }
+      void main(){ float along = vUv.y; float a = pow(along, 1.4) * pow(vEdge, 1.8);
+        float dust = 0.55 + 0.45 * n3(vW * 1.6 + vec3(0.0, -uTime * 0.3, uTime * 0.1));
+        gl_FragColor = vec4(uColor * a * dust * uI, 1.0); }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+  m.userData.noDepth = true;
+  const mesh = new THREE.Mesh(geo, m);
+  mesh.position.copy(from);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir.normalize());
+  mesh.userData.noReflect = true;
+  group.add(mesh);
+  return (dt, t) => { m.uniforms.uTime.value = t; };
 }
 
 // ------------------------------------------------------------------
@@ -274,6 +363,34 @@ function buildRooftop() {
     const beam = new THREE.Mesh(geo, beamM); beam.position.set(x, -30, -120); group.add(beam);
     updaters.push((dt, t) => { beam.rotation.z = Math.sin(t * 0.25 + ph) * 0.5; beam.rotation.x = -0.25 + Math.cos(t * 0.2 + ph) * 0.1; });
   }
+  // burning barrel with flames, embers and smoke
+  const rust = pbr({ size: 512, strength: 4, roughness: 0.85, metal: 0.4, paint: (g, w, h) => { g.fillStyle = '#5a3420'; g.fillRect(0, 0, w, h); overlayNoise(g, w, h, noiseCanvas(256, 8, 301, 5, 1.8), 0.7); for (let y = 40; y < h; y += 150) { g.fillStyle = 'rgba(20,10,5,0.6)'; g.fillRect(0, y, w, 14); } }, height: (g, w, h) => { overlayNoise(g, w, h, noiseCanvas(256, 16, 302, 4), 0.6); for (let y = 40; y < h; y += 150) { g.fillStyle = '#e0e0e0'; g.fillRect(0, y, w, 14); } } });
+  const barrelPos = new THREE.Vector3(-7.6, 0, -8.6);
+  add(group, new THREE.CylinderGeometry(0.42, 0.4, 1.05, 24, 1, true), rust, barrelPos.x, 0.52, barrelPos.z);
+  add(group, new THREE.CircleGeometry(0.4, 20), new THREE.MeshStandardMaterial({ color: 0xff6a1a, emissive: 0xff5a10, emissiveIntensity: 3 }), barrelPos.x, 0.95, barrelPos.z, -Math.PI / 2);
+  const fireLight = new THREE.PointLight(0xff7a2a, 16, 11, 1.6); fireLight.position.set(barrelPos.x, 1.6, barrelPos.z); group.add(fireLight);
+  const flames = new Particles(group, { max: 220, additive: true });
+  const embers = new Particles(group, { max: 160, additive: true, scale: 300 });
+  const smoke = new Particles(group, { max: 140, additive: false, smoke: true });
+  updaters.push((dt, t) => {
+    for (let k = 0; k < 6; k++) flames.emit(new THREE.Vector3(barrelPos.x + (Math.random() - 0.5) * 0.5, 1.0, barrelPos.z + (Math.random() - 0.5) * 0.4), new THREE.Vector3((Math.random() - 0.5) * 0.3, 1.6 + Math.random() * 1.2, (Math.random() - 0.5) * 0.3), { life: 0.5 + Math.random() * 0.4, size: 0.85, size1: 0.18, color: 0xffd890, color1: 0xff2a00, alpha: 1, drag: 1 });
+    if (Math.random() < 0.5) embers.emit(new THREE.Vector3(barrelPos.x + (Math.random() - 0.5) * 0.4, 1.2, barrelPos.z), new THREE.Vector3((Math.random() - 0.5) * 1.2 + 0.4, 2 + Math.random() * 2.5, (Math.random() - 0.5) * 0.8), { life: 2 + Math.random() * 2, size: 0.05, color: 0xffc060, color1: 0xff3000, drag: 0.3, gravity: -0.4 });
+    if (Math.random() < 0.5) smoke.emit(new THREE.Vector3(barrelPos.x, 1.9, barrelPos.z), new THREE.Vector3(0.25 + Math.random() * 0.2, 0.7 + Math.random() * 0.4, (Math.random() - 0.5) * 0.2), { life: 4.5, size: 0.9, size1: 4.2, color: 0x2a2626, color1: 0x55555c, alpha: 0.5, drag: 0.1 });
+    // steam from the HVAC units and a floor vent
+    if (Math.random() < 0.25) smoke.emit(new THREE.Vector3(-14.5, 1.6, -4), new THREE.Vector3(0.2, 1.1, 0.3), { life: 3, size: 0.6, size1: 2.6, color: 0x8a8e96, color1: 0x5a5e66, alpha: 0.22, drag: 0.2 });
+    if (Math.random() < 0.3) smoke.emit(new THREE.Vector3(5.5, 0.15, -7.5), new THREE.Vector3(0.1, 1.4, 0.1), { life: 2.6, size: 0.4, size1: 2.2, color: 0x9a9ea6, color1: 0x6a6e76, alpha: 0.25, drag: 0.3 });
+    flames.update(dt); embers.update(dt); smoke.update(dt);
+    fireLight.intensity = 16 + Math.sin(t * 17) * 3 + Math.sin(t * 31) * 2.5 + Math.random() * 2.5;
+  });
+  add(group, new THREE.CylinderGeometry(0.2, 0.2, 0.12, 16), steel, 5.5, 0.06, -7.5);
+  // floodlight on a pole: real spot light plus a volumetric shaft through the rain
+  const pole = new THREE.Group(); pole.position.set(-15, 0, -1.5); group.add(pole);
+  add(pole, new THREE.CylinderGeometry(0.08, 0.12, 7, 10), steel, 0, 3.5, 0);
+  add(pole, new THREE.BoxGeometry(0.7, 0.3, 0.5), steel, 0.35, 7.0, 0, 0, 0, -0.5);
+  add(pole, new THREE.CircleGeometry(0.22, 16), new THREE.MeshBasicMaterial({ color: 0xfff4e0 }), 0.48, 6.85, 0.0, 0, Math.PI / 2 - 0.0, -0.5 - Math.PI / 2 + Math.PI);
+  const spot = new THREE.SpotLight(0xfff0d8, 70, 22, 0.55, 0.7, 1.6); spot.position.set(-14.5, 6.9, -1.5); spot.target.position.set(-7, 0, -2); group.add(spot); group.add(spot.target);
+  updaters.push(lightShaft(group, { from: new THREE.Vector3(-14.5, 6.85, -1.5), to: new THREE.Vector3(-7.5, 0, -2), r0: 0.2, r1: 3.2, color: 0xe8f0ff, intensity: 0.3 }));
+  updaters.push(lightShaft(group, { from: new THREE.Vector3(11, 2.35, -6.1), to: new THREE.Vector3(11, 0, -5.2), r0: 0.12, r1: 1.1, color: 0xffc880, intensity: 0.35 }));
   const rain = new Rain(group);
   updaters.push((dt) => rain.update(dt));
   const lights = keyLights(group, { sky: 0x6a7cff, ground: 0x1a1220, hemi: 0.5, key: 0xd8e4ff, keyI: 2.0, keyPos: [-5, 14, 9], rim: 0x5fb8ff, rimI: 2.6, fill: 0xff7a4a, fillI: 0.5 });
@@ -288,7 +405,7 @@ function buildRooftop() {
     lights.hemi.intensity = 0.5 + f * 1.5;
   });
   void floor;
-  return { group, updaters, fog: new THREE.FogExp2(0x15122a, 0.0105), exposure: 1.05, lights, sky, envFloor: 0x2a2b30 };
+  return { group, updaters, fog: new THREE.FogExp2(0x15122a, 0.0105), exposure: 1.05, lights, sky, envFloor: 0x2a2b30, rimColor: 0x9cc8ff, rimStrength: 0.55, reflectFloor: { mesh: floor, strength: 1.1 } };
 }
 
 function cracksA(g, w, h, seed, color) {
@@ -365,9 +482,12 @@ function buildSpace() {
     emissive: (g, w, h) => { g.fillStyle = '#2fc6ff'; for (let k = 128; k < w; k += 512) g.fillRect(k - 2, 0, 4, h); },
   });
   const plate = new THREE.Mesh(new THREE.CylinderGeometry(17, 15, 1.4, 72), [
-    new THREE.MeshStandardMaterial({ color: 0x1b1d24, metalness: 0.8, roughness: 0.45 }), deckM, new THREE.MeshStandardMaterial({ color: 0x111218 }),
+    new THREE.MeshStandardMaterial({ color: 0x1b1d24, metalness: 0.8, roughness: 0.45 }), new THREE.MeshStandardMaterial({ color: 0x15161c }), new THREE.MeshStandardMaterial({ color: 0x111218 }),
   ]);
   plate.position.set(0, -0.7, -3); plate.receiveShadow = true; group.add(plate);
+  // reflective deck surface on top of the platform
+  const deckTop = new THREE.Mesh(new THREE.CircleGeometry(16.95, 96), deckM);
+  deckTop.rotation.x = -Math.PI / 2; deckTop.position.set(0, 0.002, -3); deckTop.receiveShadow = true; group.add(deckTop);
   const hazard = makeCanvas(512, 32, (g, w, h) => { for (let x = -32; x < w; x += 32) { g.fillStyle = '#e8b81a'; g.beginPath(); g.moveTo(x, h); g.lineTo(x + 16, 0); g.lineTo(x + 32, 0); g.lineTo(x + 16, h); g.fill(); } });
   const hz = new THREE.Mesh(new THREE.RingGeometry(16.2, 16.9, 96), new THREE.MeshStandardMaterial({ map: toTex(hazard, { repeat: [40, 1] }), roughness: 0.6, color: 0xffffff }));
   hz.rotation.x = -Math.PI / 2; hz.position.set(0, 0.006, -3); hz.receiveShadow = true; group.add(hz);
@@ -426,9 +546,30 @@ function buildSpace() {
   }
   updaters.push((dt) => ships.forEach((s, i) => { s.position.x += (6 + i * 3) * dt; if (s.position.x > 150) s.position.x = -150; }));
   updaters.push(motes(group, 160, [-16, 16, -12, 5, 8], 0x9fd8ff, 0.05, 0.25));
+  // welding sparks from the gantry, steam jets from deck grates, overhead flood shafts
+  const sparks = new Particles(group, { max: 260, additive: true, scale: 320 });
+  const steam = new Particles(group, { max: 120, additive: false, smoke: true });
+  const weldLight = new THREE.PointLight(0x9fd8ff, 0, 8, 2); group.add(weldLight);
+  let weldT = 0;
+  updaters.push((dt, t) => {
+    weldT -= dt;
+    const wx = hook.position.x, wy = 5.0;
+    if (weldT < 0 && Math.random() < 0.02) weldT = 0.8 + Math.random();
+    if (weldT > 0) {
+      for (let k = 0; k < 5; k++) sparks.emit(new THREE.Vector3(wx, wy, -14), new THREE.Vector3((Math.random() - 0.5) * 4, Math.random() * 3, (Math.random() - 0.5) * 2 + 1), { life: 0.6 + Math.random() * 0.8, size: 0.06, color: 0xffffff, color1: 0xff8a20, gravity: -9, drag: 0.4 });
+      weldLight.position.set(wx, wy, -13.5); weldLight.intensity = 6 + Math.random() * 6;
+    } else weldLight.intensity = 0;
+    const puff = (Math.sin(t * 0.8) > 0.6);
+    if (puff && Math.random() < 0.6) steam.emit(new THREE.Vector3(-1.3, 0.05, -1.1 + (Math.random() - 0.5) * 0.4), new THREE.Vector3((Math.random() - 0.5) * 0.4, 2.4, (Math.random() - 0.5) * 0.4), { life: 1.8, size: 0.35, size1: 2.4, color: 0xb8c8d8, color1: 0x6a7080, alpha: 0.3, drag: 0.8 });
+    sparks.update(dt); steam.update(dt);
+  });
+  for (const x of [-6, 6]) {
+    add(group, new THREE.BoxGeometry(0.8, 0.25, 0.5), strutM, x, 8.7, -14);
+    updaters.push(lightShaft(group, { from: new THREE.Vector3(x, 8.55, -14), to: new THREE.Vector3(x * 0.6, 0, -6), r0: 0.25, r1: 3.0, color: 0xbfe6ff, intensity: 0.22 }));
+  }
   const lights = keyLights(group, { sky: 0x8a6cff, ground: 0x0a0812, hemi: 0.45, key: 0xfff0e6, keyI: 2.2, keyPos: [-6, 14, 8], rim: 0x9a7cff, rimI: 1.3, fill: 0x3fc8ff, fillI: 0.6 });
   const consoleLight = new THREE.PointLight(0x4fe0ff, 4, 6, 2); consoleLight.position.set(-14, 2, -1.5); group.add(consoleLight);
-  return { group, updaters, fog: new THREE.FogExp2(0x070414, 0.0055), exposure: 1.0, lights, sky, envFloor: 0x1b1d24 };
+  return { group, updaters, fog: new THREE.FogExp2(0x070414, 0.0055), exposure: 1.0, lights, sky, envFloor: 0x1b1d24, rimColor: 0xc89aff, rimStrength: 0.55, reflectFloor: { mesh: deckTop, strength: 0.7 } };
 }
 
 // ------------------------------------------------------------------
@@ -520,8 +661,12 @@ function buildBifrost() {
   const mtM = new THREE.MeshStandardMaterial({ color: 0x1a2340, roughness: 1, flatShading: true });
   for (let i = 0; i < 14; i++) { const m = new THREE.Mesh(new THREE.ConeGeometry(30 + Math.random() * 30, 40 + Math.random() * 50, 7), mtM); m.position.set(-260 + i * 40, -14, -290 - Math.random() * 40); group.add(m); }
   updaters.push(motes(group, 180, [-16, 16, -6, 3, 6], 0xffe8b0, 0.06, 0.35));
+  // god rays from the sky and low drifting mist over the bridge
+  for (const [x, z] of [[-9, -14], [4, -16], [14, -12]]) updaters.push(lightShaft(group, { from: new THREE.Vector3(x - 6, 40, z - 10), to: new THREE.Vector3(x, 0, z + 6), r0: 1.2, r1: 7, color: 0xffd9a0, intensity: 0.16 }));
+  const mistP = new Particles(group, { max: 90, additive: false, smoke: true });
+  updaters.push((dt) => { if (Math.random() < 0.2) mistP.emit(new THREE.Vector3(-20 + Math.random() * 40, 0.2, -6 + Math.random() * 1.5), new THREE.Vector3(0.4, 0.05, 0.1), { life: 7, size: 2.5, size1: 5, color: 0x9aa8d8, color1: 0x7a88c0, alpha: 0.14, drag: 0.05 }); mistP.update(dt); });
   const lights = keyLights(group, { sky: 0x9ab4ff, ground: 0x402a60, hemi: 0.6, key: 0xfff0d0, keyI: 2.2, rim: 0xffcf7a, rimI: 2.4, fill: 0x9f6bff, fillI: 0.6 });
-  return { group, updaters, fog: new THREE.FogExp2(0x1a2550, 0.0038), exposure: 1.05, lights, sky, envFloor: 0x6a4a9a };
+  return { group, updaters, fog: new THREE.FogExp2(0x1a2550, 0.0038), exposure: 1.05, lights, sky, envFloor: 0x6a4a9a, rimColor: 0xffd9a0, rimStrength: 0.5 };
 }
 
 const BUILDERS = { rooftop: buildRooftop, space: buildSpace, bifrost: buildBifrost };

@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { Rig } from './rig.js';
 import { buildHead } from './face.js';
+import { enhanceRig } from './enhance.js';
 import { makeCanvas, normalCanvas, toTex, heightCanvas, noiseCanvas, overlayNoise } from './textures.js';
 
 const TAU = Math.PI * 2;
@@ -122,6 +123,7 @@ export function partMaterial(key, opt) {
     roughnessMap: tex.roughnessMap || null, side: opt.side ?? THREE.FrontSide,
   });
   m.normalScale.set(1, 1);
+  if (opt.skin) m.userData.skin = true;
   return m;
 }
 
@@ -370,5 +372,6 @@ export function buildHeroRig(spec) {
   if (spec.decorate) spec.decorate(rig, { THREE, J, d, mats });
   root.scale.setScalar(d.scale);
   rig.collectFlashMaterials();
+  enhanceRig(rig);
   return rig;
 }

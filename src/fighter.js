@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { POSES, lerpPose, clonePose, addTo } from './rig.js';
 import { movesFor, SPECIALS, ULTIMATES, newHitId } from './moves.js';
+import { setSweat } from './enhance.js';
 
 const GRAVITY = 32;
 const FACE_ANGLE = Math.PI / 2 - 0.38; // turned slightly toward the camera
@@ -145,6 +146,9 @@ export class Fighter {
   takeHit(hit, dir) {
     const opp = this.game.opponentOf(this);
     this.sinceHit = 0;
+    this.sweat = Math.min(1, (this.sweat || 0) + 0.025 + (hit.dmg || 0) * 0.004);
+    const kick = new THREE.Vector3(dir * (2 + (hit.push || 0) * 0.6), 1.5 + (hit.launch ? 3 : 0), (Math.random() - 0.5) * 2);
+    for (const c of this.rig.cloths) c.impulse(kick);
     this.flash(0xffffff, 0.1);
     if (this.hp <= 0) {
       this.state = 'ko'; this.stateT = 0;
@@ -190,6 +194,7 @@ export class Fighter {
     if (this.flashT > 0) this.flashT -= dt;
     this.poseName = null;
     this.sinceHit = (this.sinceHit || 0) + dt;
+    if (g.phase === 'fight') { this.sweat = Math.min(1, (this.sweat || 0) + dt * 0.006); if ((this._sweatT = (this._sweatT || 0) + dt) > 0.25) { this._sweatT = 0; setSweat(this.rig, this.sweat); } }
     if (this.hero.regen && this.sinceHit > 3 && this.hp > 0 && this.hp < this.maxHp * 0.5 && g.phase === 'fight') this.hp = Math.min(this.maxHp * 0.5, this.hp + 1.5 * dt);
 
     const free = this.isFree();

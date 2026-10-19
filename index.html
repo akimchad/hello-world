@@ -79,27 +79,27 @@
     <section id="screen-hud" class="screen hud">
       <div class="hud-top">
         <div class="hud-player p1">
-          <div class="hp-frame"><div class="hp-lag" id="hp1-lag"></div><div class="hp-fill" id="hp1"></div></div>
-          <div class="hud-row">
-            <span class="hud-name" id="hud-name1">P1</span>
-            <span class="pips" id="pips1"></span>
-          </div>
-          <div class="meters">
-            <div class="meter special"><div class="meter-fill" id="sp1"></div><span>SPECIAL</span></div>
-            <div class="meter ult"><div class="meter-fill" id="ult1"></div><span id="ult1-label">ULTIMATE</span></div>
+          <div class="portrait"><canvas id="port1" width="96" height="116"></canvas></div>
+          <div class="hud-stack">
+            <div class="nameplate"><span class="hud-name" id="hud-name1">P1</span><span class="pips" id="pips1"></span></div>
+            <div class="hp-frame"><div class="hp-track"><div class="hp-lag" id="hp1-lag"></div><div class="hp-fill" id="hp1"></div><div class="hp-gloss"></div><div class="hp-ticks"></div></div></div>
+            <div class="meters">
+              <div class="meter special"><div class="meter-fill" id="sp1"></div><span>SPECIAL</span></div>
+              <div class="meter ult"><div class="meter-fill" id="ult1"></div><span id="ult1-label">ULTIMATE</span></div>
+            </div>
           </div>
         </div>
-        <div class="hud-timer" id="timer">99</div>
+        <div class="hud-center"><div class="medallion"><div class="hud-timer" id="timer">99</div></div><div class="round-label" id="round-label">ROUND 1</div></div>
         <div class="hud-player p2">
-          <div class="hp-frame"><div class="hp-lag" id="hp2-lag"></div><div class="hp-fill" id="hp2"></div></div>
-          <div class="hud-row">
-            <span class="pips" id="pips2"></span>
-            <span class="hud-name" id="hud-name2">P2</span>
+          <div class="hud-stack">
+            <div class="nameplate"><span class="hud-name" id="hud-name2">P2</span><span class="pips" id="pips2"></span></div>
+            <div class="hp-frame"><div class="hp-track"><div class="hp-lag" id="hp2-lag"></div><div class="hp-fill" id="hp2"></div><div class="hp-gloss"></div><div class="hp-ticks"></div></div></div>
+            <div class="meters">
+              <div class="meter special"><div class="meter-fill" id="sp2"></div><span>SPECIAL</span></div>
+              <div class="meter ult"><div class="meter-fill" id="ult2"></div><span id="ult2-label">ULTIMATE</span></div>
+            </div>
           </div>
-          <div class="meters">
-            <div class="meter special"><div class="meter-fill" id="sp2"></div><span>SPECIAL</span></div>
-            <div class="meter ult"><div class="meter-fill" id="ult2"></div><span id="ult2-label">ULTIMATE</span></div>
-          </div>
+          <div class="portrait"><canvas id="port2" width="96" height="116"></canvas></div>
         </div>
       </div>
       <div class="combo p1" id="combo1"></div>
@@ -153,7 +153,7 @@
             <select id="set-rounds"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
           </label>
           <label>Graphics quality
-            <select id="set-quality"><option value="high">High (bloom + shadows)</option><option value="medium">Medium</option><option value="low">Low (fastest)</option></select>
+            <select id="set-quality"><option value="ultra">Ultra (reflections + depth of field)</option><option value="high">High (depth of field)</option><option value="medium">Medium</option><option value="low">Low (fastest)</option></select>
           </label>
           <label>Screen shake <input type="checkbox" id="set-shake"></label>
           <label>CPU difficulty

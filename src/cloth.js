@@ -83,6 +83,7 @@ export class Cloth {
     for (let s = 0; s < steps; s++) {
       for (let i = C; i < P.length; i++) {
         const p = P[i], q = Q[i];
+        if (!Number.isFinite(p.x + p.y + p.z + q.x + q.y + q.z)) { this.inited = false; return; }
         const vx = (p.x - q.x) * 0.985, vy = (p.y - q.y) * 0.985, vz = (p.z - q.z) * 0.985;
         q.copy(p);
         p.x += vx + Math.sin(t * 2.1 + i * 0.3) * 0.00004; p.y += vy + grav; p.z += vz + Math.cos(t * 1.7 + i) * 0.00004;
@@ -109,6 +110,21 @@ export class Cloth {
     for (let i = 0; i < P.length; i++) { a.copy(P[i]).applyMatrix4(this.inv); pos.setXYZ(i, a.x, a.y, a.z); }
     pos.needsUpdate = true;
     this.geo.computeVertexNormals();
+    // collapsed triangles give zero normals, which turn into NaN in the shader
+    const nrm = this.geo.attributes.normal;
+    for (let i = 0; i < nrm.count; i++) {
+      const x = nrm.getX(i), y = nrm.getY(i), z = nrm.getZ(i);
+      if (!(x * x + y * y + z * z > 1e-8)) nrm.setXYZ(i, 0, 0, 1);
+    }
+  }
+
+  // kick the cloth (world-space velocity, m/s): lower rows react more
+  impulse(v) {
+    const C = this.cols, h = 1 / 90;
+    for (let i = C; i < this.p.length; i++) {
+      const r = Math.floor(i / C) / (this.rows - 1);
+      this.q[i].addScaledVector(v, -h * r * (0.7 + Math.random() * 0.6));
+    }
   }
 
   solve(i, j, rest, pinA, k = 1) {

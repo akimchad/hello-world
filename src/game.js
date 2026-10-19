@@ -5,6 +5,7 @@ import { Fighter, GRAVITY } from './fighter.js';
 import { buildArena, makeEnvironment } from './arenas.js';
 import { Effects } from './effects.js';
 import { POSES } from './rig.js';
+import { setRim } from './enhance.js';
 
 const DAMAGE_SCALE = 0.85; // global pacing knob: lower = longer rounds
 const PRAISE =['', '', 'NICE', 'GREAT', 'SUPERB', 'BRUTAL', 'OUTSTANDING', 'LEGENDARY'];
@@ -12,7 +13,8 @@ const PRAISE =['', '', 'NICE', 'GREAT', 'SUPERB', 'BRUTAL', 'OUTSTANDING', 'LEGE
 function overlap(a, b) { return a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0; }
 
 export class Match {
-  constructor({ heroes, stageId, cpu, settings, audio, inputs, hud, onEnd, renderer }) {
+  constructor({ heroes, stageId, cpu, settings, audio, inputs, hud, onEnd, renderer, cine }) {
+    this.post = cine || null;
     this.settings = settings;
     this.audio = audio;
     this.hud = hud;
@@ -24,6 +26,11 @@ export class Match {
     this.scene.add(this.arena.group);
     this.scene.fog = this.arena.fog;
     if (renderer) { this.arena.envRT = makeEnvironment(renderer, this.arena); this.scene.environment = this.arena.envRT.texture; }
+    setRim(this.arena.rimColor ?? 0x7fb8ff, this.arena.rimStrength ?? 0.5);
+    const key = this.arena.lights.key;
+    this.keyBase = key.position.clone();
+    if (settings.quality === 'high' || settings.quality === 'ultra') { key.shadow.mapSize.set(2048, 2048); }
+    const sc = key.shadow.camera; sc.left = -9; sc.right = 9; sc.top = 7; sc.bottom = -3; sc.updateProjectionMatrix();
     this.bounds = this.arena.bounds;
     this.fx = new Effects(this.scene);
     const mirror = heroes[0].id === heroes[1].id;
@@ -126,6 +133,11 @@ export class Match {
     const k = hit.kind;
     this.shake(hit.shake ?? (k === 'heavy' ? 0.35 : k === 'medium' ? 0.18 : k === 'special' ? 0.3 : k === 'ult' ? 0.25 : 0.08));
     this.hitstop(k === 'heavy' ? 0.1 : k === 'medium' ? 0.065 : k === 'special' ? 0.08 : k === 'ult' ? 0.05 : 0.045);
+    if (this.post) {
+      const amt = { light: 0.0, medium: 0.025, heavy: 0.05, special: 0.04, ult: 0.03 }[k] ?? 0.02;
+      if (amt > 0) { const v = contact.clone().project(this.camera); this.post.impactAt(new THREE.Vector2(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5), amt * (hit.final ? 2 : 1)); }
+      if (hit.launch || hit.knockdown) this.post.motion(dir, 0.012);
+    }
     if (att.combo >= 2) this.hud.combo(att.side, att.combo, PRAISE[Math.min(att.combo, PRAISE.length - 1)]);
     if (def.hp <= 0) this.onKO(att, def);
     return 'hit';
@@ -200,6 +212,7 @@ export class Match {
 
   ultCinematic(f) {
     this.cine = { f, t: 0, dur: 0.95 };
+    if (this.post) this.post.impact(0.35);
     this.hud.ultBanner(f.hero.ultimate.name, f.side);
     this.audio.play('ultstart');
     this.audio.say(f.hero.ultimate.name);
@@ -211,6 +224,7 @@ export class Match {
     this.roundWinner = att;
     this.slowT = 1.4;
     this.hud.announce('K.O.', 'red', 1.8);
+    if (this.post) this.post.impact(1);
     this.audio.play('ko');
     this.audio.say('K.O.');
     this.shake(1);
@@ -249,6 +263,7 @@ export class Match {
       const [a, b] = this.fighters;
       a.update(dt, b); b.update(dt, a);
       this.resolvePush(a, b);
+      if (this.post) for (const f of this.fighters) if (Math.abs(f.vx) > 9 && (f.state === 'special' || f.state === 'ultimate' || f.state === 'attack')) this.post.motion(Math.sign(f.vx), Math.min(0.016, Math.abs(f.vx) * 0.0007));
       this.updateProjectiles(dt);
       for (const f of this.fighters) { if (!this.opponentOf(f).isStunned() && f.combo) { f.combo = 0; } }
     }
@@ -300,6 +315,7 @@ export class Match {
           this.readyStep = 1;
           const final = a.roundWins === this.roundsToWin - 1 && b.roundWins === this.roundsToWin - 1 && this.roundsToWin > 1;
           H.announce(final ? 'FINAL ROUND' : `ROUND ${this.round}`, '', 1.1);
+          H.roundLabel(final ? 'FINAL ROUND' : `ROUND ${this.round}`);
           this.audio.say(final ? 'Final round' : `Round ${this.round}`);
           this.audio.play('count');
         }
@@ -389,7 +405,8 @@ export class Match {
       else if (T < 3.0) { faceShot(b, 0.6 + (T - 1.5) * 0.15, (1.15 + (T - 1.5) * 0.2) * b.scale, -0.08); rate = T < 1.6 ? 60 : 6; }
       else rate = 4;
     }
-    if (this.cine) {
+    this.cineActive = !!this.cine && !!this.cine.f;
+    if (this.cine && this.cine.f) {
       const f = this.cine.f;
       const t = this.cine.t;
       faceShot(f, 0.9 - t * 0.25, 1.15 * f.scale + 0.4 - t * 0.35, -0.05);
@@ -409,6 +426,14 @@ export class Match {
     this.camPos.lerp(pos, k);
     this.camLook.lerp(look, k);
     this.camera.position.copy(this.camPos);
+    if (this.post) {
+      const close = this.phase === 'intro' || this.cineActive || (this.phase === 'ko' || this.phase === 'timeout') && this.phaseT > 2 || this.phase === 'over';
+      this.post.setFocus(this.camPos.distanceTo(this.camLook), close ? 2.2 : 7);
+      this.post.letterbox(!!(this.phase === 'intro' || this.cineActive || this.phase === 'over' || ((this.phase === 'ko' || this.phase === 'timeout') && this.phaseT > 2)));
+    }
+    const key = this.arena.lights.key;
+    key.position.set(this.keyBase.x + midX, this.keyBase.y, this.keyBase.z);
+    key.target.position.set(midX, 0, 0);
     if (this.shakeAmt > 0.001) {
       const s = this.shakeAmt * 0.25;
       this.camera.position.x += (Math.random() - 0.5) * s;

@@ -112,6 +112,7 @@ export class Rig {
   lateUpdate(dt) {
     this.applyVoid(dt);
     if (this.face) this.face.update(dt);
+    if (this.hairSims) for (const h of this.hairSims) h(dt);
     if (this.cloths.length) {
       this.root.updateMatrixWorld(true);
       for (const c of this.cloths) c.update(dt);
