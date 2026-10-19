@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Marvel Kombat</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/build/three.module.js",
+        "three/addons/": "./vendor/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="ui">
+    <!-- MAIN MENU -->
+    <section id="screen-menu" class="screen">
+      <div class="menu-wrap">
+        <div class="logo">
+          <div class="logo-top">MARVEL</div>
+          <div class="logo-main">KOMBAT</div>
+          <div class="logo-sub">A superhero fan fighting prototype</div>
+        </div>
+        <nav class="menu-list">
+          <button class="menu-btn" data-action="play">Play</button>
+          <button class="menu-btn" data-action="play-cpu">Versus CPU</button>
+          <button class="menu-btn" data-action="select">Character Select</button>
+          <button class="menu-btn" data-action="settings">Settings</button>
+          <button class="menu-btn" data-action="controls">Controls</button>
+        </nav>
+        <div class="menu-hint">2 players · 1 keyboard · Press <kbd>Enter</kbd></div>
+      </div>
+    </section>
+
+    <!-- CHARACTER SELECT -->
+    <section id="screen-select" class="screen">
+      <h1 class="screen-title">Choose Your Hero</h1>
+      <div class="select-layout">
+        <div class="select-side p1">
+          <div class="side-tag">P1</div>
+          <div class="sel-name" id="p1-name">—</div>
+          <div class="sel-title" id="p1-title"></div>
+          <div class="sel-stats" id="p1-stats"></div>
+          <div class="sel-abilities" id="p1-abil"></div>
+          <div class="sel-ready" id="p1-ready">Press <kbd>F</kbd> to lock in</div>
+        </div>
+        <div class="roster" id="roster"></div>
+        <div class="select-side p2">
+          <div class="side-tag">P2 <span id="p2-cpu-tag"></span></div>
+          <div class="sel-name" id="p2-name">—</div>
+          <div class="sel-title" id="p2-title"></div>
+          <div class="sel-stats" id="p2-stats"></div>
+          <div class="sel-abilities" id="p2-abil"></div>
+          <div class="sel-ready" id="p2-ready">Press <kbd>Num 1</kbd>/<kbd>K</kbd> to lock in</div>
+        </div>
+      </div>
+      <div class="select-help">
+        P1: <kbd>A</kbd><kbd>D</kbd><kbd>W</kbd><kbd>S</kbd> move · <kbd>F</kbd> lock · <kbd>G</kbd> back &nbsp;|&nbsp;
+        P2: Arrows move · <kbd>Num1</kbd>/<kbd>K</kbd> lock · <kbd>Num2</kbd>/<kbd>L</kbd> back &nbsp;|&nbsp; or click a card
+        &nbsp;|&nbsp; <kbd>Esc</kbd> menu
+      </div>
+    </section>
+
+    <!-- STAGE SELECT -->
+    <section id="screen-stage" class="screen">
+      <h1 class="screen-title">Choose The Arena</h1>
+      <div class="stage-list" id="stage-list"></div>
+      <div class="select-help"><kbd>A</kbd>/<kbd>D</kbd> or arrows choose · <kbd>F</kbd>/<kbd>Enter</kbd> fight · <kbd>Esc</kbd> back</div>
+    </section>
+
+    <!-- HUD -->
+    <section id="screen-hud" class="screen hud">
+      <div class="hud-top">
+        <div class="hud-player p1">
+          <div class="hp-frame"><div class="hp-lag" id="hp1-lag"></div><div class="hp-fill" id="hp1"></div></div>
+          <div class="hud-row">
+            <span class="hud-name" id="hud-name1">P1</span>
+            <span class="pips" id="pips1"></span>
+          </div>
+          <div class="meters">
+            <div class="meter special"><div class="meter-fill" id="sp1"></div><span>SPECIAL</span></div>
+            <div class="meter ult"><div class="meter-fill" id="ult1"></div><span id="ult1-label">ULTIMATE</span></div>
+          </div>
+        </div>
+        <div class="hud-timer" id="timer">99</div>
+        <div class="hud-player p2">
+          <div class="hp-frame"><div class="hp-lag" id="hp2-lag"></div><div class="hp-fill" id="hp2"></div></div>
+          <div class="hud-row">
+            <span class="pips" id="pips2"></span>
+            <span class="hud-name" id="hud-name2">P2</span>
+          </div>
+          <div class="meters">
+            <div class="meter special"><div class="meter-fill" id="sp2"></div><span>SPECIAL</span></div>
+            <div class="meter ult"><div class="meter-fill" id="ult2"></div><span id="ult2-label">ULTIMATE</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="combo p1" id="combo1"></div>
+      <div class="combo p2" id="combo2"></div>
+      <div class="announce" id="announce"></div>
+      <div class="ult-banner" id="ult-banner"></div>
+      <div class="intro-card" id="intro-card"><div class="ic-name" id="ic-name"></div><div class="ic-title" id="ic-title"></div></div>
+      <div class="hud-hint"><kbd>Esc</kbd> pause</div>
+    </section>
+
+    <!-- PAUSE -->
+    <section id="screen-pause" class="screen overlay">
+      <div class="panel">
+        <h2>Paused</h2>
+        <button class="menu-btn" data-action="resume">Resume</button>
+        <button class="menu-btn" data-action="restart">Restart Match</button>
+        <button class="menu-btn" data-action="controls">Controls</button>
+        <button class="menu-btn" data-action="settings">Settings</button>
+        <button class="menu-btn" data-action="quit">Quit to Menu</button>
+      </div>
+    </section>
+
+    <!-- VICTORY -->
+    <section id="screen-victory" class="screen overlay victory">
+      <div class="panel wide">
+        <div class="victory-sub" id="victory-sub">Player 1</div>
+        <h2 class="victory-name" id="victory-name">WINS</h2>
+        <div class="victory-flawless" id="victory-flawless"></div>
+        <div class="victory-stats" id="victory-stats"></div>
+        <div class="victory-btns">
+          <button class="menu-btn" data-action="rematch">Rematch</button>
+          <button class="menu-btn" data-action="select">Character Select</button>
+          <button class="menu-btn" data-action="quit">Main Menu</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="screen-settings" class="screen overlay">
+      <div class="panel wide">
+        <h2>Settings</h2>
+        <div class="settings-grid">
+          <label>Master volume <input type="range" min="0" max="100" id="set-master"></label>
+          <label>Music volume <input type="range" min="0" max="100" id="set-music"></label>
+          <label>Effects volume <input type="range" min="0" max="100" id="set-sfx"></label>
+          <label>Announcer voice <input type="checkbox" id="set-voice"></label>
+          <label>Round time
+            <select id="set-time"><option value="60">60s</option><option value="99">99s</option><option value="0">Infinite</option></select>
+          </label>
+          <label>Rounds to win
+            <select id="set-rounds"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select>
+          </label>
+          <label>Graphics quality
+            <select id="set-quality"><option value="high">High (bloom + shadows)</option><option value="medium">Medium</option><option value="low">Low (fastest)</option></select>
+          </label>
+          <label>Screen shake <input type="checkbox" id="set-shake"></label>
+          <label>CPU difficulty
+            <select id="set-cpu"><option value="easy">Easy</option><option value="normal">Normal</option><option value="hard">Hard</option></select>
+          </label>
+        </div>
+        <button class="menu-btn" data-action="back">Back</button>
+      </div>
+    </section>
+
+    <!-- CONTROLS -->
+    <section id="screen-controls" class="screen overlay">
+      <div class="panel wide">
+        <h2>Controls</h2>
+        <p class="controls-note">Click a key to rebind it, then press the new key (Esc cancels). Each action has a main key and an alternate. Laptop without a numpad? Player 2 can use the alternates <kbd>K</kbd> <kbd>L</kbd> <kbd>;</kbd> <kbd>O</kbd> <kbd>P</kbd>.</p>
+        <div class="controls-grid" id="controls-grid"></div>
+        <div class="controls-btns">
+          <button class="menu-btn small" data-action="reset-keys">Reset to defaults</button>
+          <button class="menu-btn small" data-action="back">Back</button>
+        </div>
+        <div class="moves-help">
+          <b>Combat tips</b> — Press Light up to 3 times for a combo string · Crouching ducks under high punches · Crouch + Light = low sweep ·Crouch + Heavy = launcher uppercut · Attack in the air for jump-ins · Hold Block to reduce damage to chip · Special has a cooldown · Ultimate charges as you deal and take damage.
+        </div>
+      </div>
+    </section>
+
+    <div id="fade"></div>
+    <div id="loading">Loading…</div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
