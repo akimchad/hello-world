@@ -31,6 +31,12 @@ export class Match {
     this.keyBase = key.position.clone();
     if (settings.quality === 'high' || settings.quality === 'ultra') { key.shadow.mapSize.set(2048, 2048); }
     const sc = key.shadow.camera; sc.left = -9; sc.right = 9; sc.top = 7; sc.bottom = -3; sc.updateProjectionMatrix();
+    // dedicated rim/back lights that follow each fighter to pop them off the background
+    this.rimLights = [0, 1].map(() => {
+      const L = new THREE.SpotLight(this.arena.rimColor ?? 0x9cc8ff, settings.quality === 'low' ? 0 : 38, 10, 0.55, 0.85, 1.3);
+      this.scene.add(L); this.scene.add(L.target);
+      return L;
+    });
     this.bounds = this.arena.bounds;
     this.fx = new Effects(this.scene);
     const mirror = heroes[0].id === heroes[1].id;
@@ -63,6 +69,7 @@ export class Match {
     this.positionFighters();
     hud.setup(this);
     this.audio.setMusic('fight');
+    this.audio.startAmbience(stageId);
   }
 
   opponentOf(f) { return f === this.fighters[0] ? this.fighters[1] : this.fighters[0]; }
@@ -129,7 +136,10 @@ export class Match {
     const power = hit.spark ?? ({ light: 0.6, medium: 1, heavy: 1.5, special: 1.3, ult: 1.2 }[hit.kind] || 1);
     this.fx.hitSpark(contact, hit.color ?? 0xffa040, power);
     if (hit.zap) this.fx.bolt(contact.clone().add(new THREE.Vector3(0, 1.2, 0)), contact, 0x9fd8ff, 0.15, 0.07, 1);
-    this.audio.play(hit.sfx || 'light', hit.sfxVol ?? 1);
+    const sfx = hit.sfx || 'light';
+    this.audio.hit(hit.kind === 'light' && sfx === 'heavy' ? 'medium' : hit.kind, hit.sfxVol ?? 1, sfx === 'light' || sfx === 'heavy' ? null : sfx);
+    if (def.hp <= 0) this.audio.grunt(def.hero, 'ko', 1.1);
+    else if (dmg > 3.5 || Math.random() < 0.35) this.audio.grunt(def.hero, 'hurt', 0.8 + Math.min(0.4, dmg * 0.03));
     const k = hit.kind;
     this.shake(hit.shake ?? (k === 'heavy' ? 0.35 : k === 'medium' ? 0.18 : k === 'special' ? 0.3 : k === 'ult' ? 0.25 : 0.08));
     this.hitstop(k === 'heavy' ? 0.1 : k === 'medium' ? 0.065 : k === 'special' ? 0.08 : k === 'ult' ? 0.05 : 0.045);
@@ -233,6 +243,7 @@ export class Match {
   // ---------------- update ----------------
   update(rawDt) {
     const realDt = Math.min(rawDt, 1 / 20);
+    if (this.arena.group.userData.thunder) { this.arena.group.userData.thunder = false; setTimeout(() => this.audio.thunder(), 300 + Math.random() * 900); }
     this.time += realDt;
     this.phaseT += realDt;
     this.arena.update(realDt, this.time);
@@ -431,6 +442,11 @@ export class Match {
       this.post.setFocus(this.camPos.distanceTo(this.camLook), close ? 2.2 : 7);
       this.post.letterbox(!!(this.phase === 'intro' || this.cineActive || this.phase === 'over' || ((this.phase === 'ko' || this.phase === 'timeout') && this.phaseT > 2)));
     }
+    this.fighters.forEach((f, i) => {
+      const L = this.rimLights[i];
+      L.position.set(f.x - f.facing * 0.4, f.y + 3.4 * f.scale, -2.6);
+      L.target.position.set(f.x, f.y + 1.2 * f.scale, 0.2);
+    });
     const key = this.arena.lights.key;
     key.position.set(this.keyBase.x + midX, this.keyBase.y, this.keyBase.z);
     key.target.position.set(midX, 0, 0);
@@ -446,6 +462,7 @@ export class Match {
   resize(w, h) { this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); }
 
   dispose() {
+    this.audio.stopAmbience();
     for (const p of this.projectiles) this.killProjectile(p);
     this.fx.clear();
     this.arena.dispose();

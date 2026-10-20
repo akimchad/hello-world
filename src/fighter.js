@@ -99,7 +99,9 @@ export class Fighter {
     this.crouching = !!this.move.crouch;
     this.blocking = false;
     if (this.onGround && !this.move.air) this.vx *= 0.3;
-    this.game.audio.play('whoosh', 0.7);
+    const strength = { light: 0.7, medium: 0.9, heavy: 1.15 }[this.move.kind] || 0.8;
+    this.game.audio.whoosh(Math.max(0, this.move.startup * this.hero.attackSpeed - 0.07), strength);
+    if (this.move.kind !== 'light' && Math.random() < 0.6) this.game.audio.grunt(this.hero, 'effort', 0.7);
   }
 
   startSpecial() {
@@ -109,6 +111,7 @@ export class Fighter {
     this.state = 'special'; this.stateT = 0;
     this.script = sp;
     this.specialCd = this.hero.special.cd;
+    this.game.audio.grunt(this.hero, 'effort', 0.8);
     this.crouching = false; this.blocking = false;
     this.vx = 0;
     return true;
@@ -146,6 +149,7 @@ export class Fighter {
   takeHit(hit, dir) {
     const opp = this.game.opponentOf(this);
     this.sinceHit = 0;
+    this.hitCount = (this.hitCount || 0) + 1;
     this.sweat = Math.min(1, (this.sweat || 0) + 0.025 + (hit.dmg || 0) * 0.004);
     const kick = new THREE.Vector3(dir * (2 + (hit.push || 0) * 0.6), 1.5 + (hit.launch ? 3 : 0), (Math.random() - 0.5) * 2);
     for (const c of this.rig.cloths) c.impulse(kick);
@@ -359,6 +363,33 @@ export class Fighter {
     } else if (this.state === 'hit') { this.vx *= 0.5; }
   }
 
+  // animation clip key for GLB/Mixamo models (procedural rigs use poses)
+  animKey() {
+    switch (this.state) {
+      case 'intro': return [this.game.phase === 'intro' ? 'taunt' : 'idle', {}];
+      case 'idle':
+        if (this.blocking) return ['block', {}];
+        if (this.crouching) return ['crouch', {}];
+        if (Math.abs(this.vx) > 0.4) return [Math.sign(this.vx) === this.facing ? 'walk' : 'walkBack', {}];
+        return ['idle', {}];
+      case 'air': return ['jump', {}];
+      case 'attack': {
+        const map = { jab: 'punch', cross: 'punch2', kick: 'kick', heavy: 'heavy', sweep: 'sweep', upper: 'uppercut', airLight: 'airKick', airHeavy: 'airKick' };
+        return [map[this.move.name] || 'punch', { duration: this.moveTotal(), token: this.hitId }];
+      }
+      case 'special': return ['special', { duration: 0.6, token: 'sp' + this.specialCd.toFixed(2) }];
+      case 'ultimate': return ['special', { duration: 0.9 }];
+      case 'blockstun': return ['block', {}];
+      case 'hit': return [(!this.onGround || this.stunT > 50) ? 'knockdown' : 'hit', { token: (this.stunT > 50 ? 'kd' : 'h') + this.hitCount }];
+      case 'locked': return ['hit', {}];
+      case 'down': return ['down', {}];
+      case 'getup': return ['getup', { duration: 0.4 }];
+      case 'ko': return ['ko', {}];
+      case 'victory': return ['victory', {}];
+      default: return ['idle', {}];
+    }
+  }
+
   expression() {
     const t = this.stateT;
     const calm = this.hero.id === 'doom' ? 'grit' : 'focus';
@@ -427,6 +458,7 @@ export class Fighter {
       case 'victory': pose = (t % 3 < 1.6) ? P.victory : P.taunt; rate = 6; break;
       default: pose = P.idle;
     }
+    if (this.rig.isModel) { const [key, opts] = this.animKey(); this.rig.setAnim(key, opts); }
     this.rig.update(pose, dt, rate);
 
     this.root.position.set(this.x, this.y, 0);

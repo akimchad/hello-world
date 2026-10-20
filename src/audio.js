@@ -1,5 +1,7 @@
-// Fully synthesized audio: sound effects, a procedural music loop, and a
-// speech-synthesis announcer. No audio files are needed.
+// Sound engine: synthesized effects plus optional sampled audio (layered,
+// pitch-randomized), stage ambience loops, character grunts, a procedural
+// music loop and a speech-synthesis announcer. Samples are optional: drop
+// files into assets/audio/ (see README) and they replace the synth layers.
 
 export class Audio {
   constructor() {
@@ -9,6 +11,9 @@ export class Audio {
     this.musicMode = 'menu';
     this.step = 0;
     this.nextTime = 0;
+    this._pitch = 1;
+    this.buffers = {};
+    this.lastGrunt = {};
   }
 
   unlock() {
@@ -22,6 +27,8 @@ export class Audio {
       this.master = c.createGain();
       this.musicGain = c.createGain();
       this.sfxGain = c.createGain();
+      this.ambGain = c.createGain();
+      this.ambGain.connect(this.master);
       this.musicGain.connect(this.master);
       this.sfxGain.connect(this.master);
       this.master.connect(this.comp).connect(c.destination);
@@ -33,6 +40,7 @@ export class Audio {
       this.timer = setInterval(() => this.schedule(), 25);
     }
     if (this.ctx.state === 'suspended') this.ctx.resume();
+    if (this.pendingAmb) { const id = this.pendingAmb; this.pendingAmb = null; this.startAmbience(id); }
   }
 
   applyVolumes() {
@@ -41,6 +49,7 @@ export class Audio {
     this.master.gain.value = s.master;
     this.musicGain.gain.value = s.music * 0.55;
     this.sfxGain.gain.value = s.sfx;
+    this.ambGain.gain.value = s.sfx * 0.45;
   }
 
   // ---------- building blocks ----------
@@ -55,9 +64,10 @@ export class Audio {
     src.buffer = this.noise;
     src.playbackRate.value = 0.8 + Math.random() * 0.4;
     const f = c.createBiquadFilter();
+    const pm = out ? 1 : this._pitch;
     f.type = type; f.Q.value = q;
-    f.frequency.setValueAtTime(f0, t);
-    if (f1) f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    f.frequency.setValueAtTime(f0 * pm, t);
+    if (f1) f.frequency.exponentialRampToValueAtTime(f1 * pm, t + dur);
     const g = c.createGain();
     this.env(g, t, attack, gain, dur);
     src.connect(f).connect(g).connect(out || this.sfxGain);
@@ -66,9 +76,10 @@ export class Audio {
   tone(t, { type = 'sine', f0 = 200, f1 = null, dur = 0.15, gain = 0.5, attack = 0.003, out, detune = 0 } = {}) {
     const c = this.ctx;
     const o = c.createOscillator();
+    const pm = out ? 1 : this._pitch;
     o.type = type; o.detune.value = detune;
-    o.frequency.setValueAtTime(f0, t);
-    if (f1) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    o.frequency.setValueAtTime(f0 * pm, t);
+    if (f1) o.frequency.exponentialRampToValueAtTime(f1 * pm, t + dur);
     const g = c.createGain();
     this.env(g, t, attack, gain, dur);
     o.connect(g).connect(out || this.sfxGain);
@@ -76,8 +87,14 @@ export class Audio {
   }
 
   // ---------- sound effects ----------
-  play(name, vol = 1) {
+  play(name, vol = 1, pitchVar = 0.05) {
     if (!this.ctx) return;
+    this._pitch = 1 + (Math.random() * 2 - 1) * pitchVar;
+    this._play(name, vol);
+    this._pitch = 1;
+  }
+
+  _play(name, vol = 1) {
     const t = this.ctx.currentTime + 0.005;
     const v = vol;
     switch (name) {
@@ -164,6 +181,128 @@ export class Audio {
         break;
     }
   }
+
+  // ---------- sampled audio ----------
+  async preload() {
+    const files = {
+      hit_sharp: 'assets/audio/hit_sharp.wav', heavy_bass: 'assets/audio/heavy_bass.wav', stage_ambience: 'assets/audio/stage_ambience.mp3',
+      whoosh: 'assets/audio/whoosh.wav',
+    };
+    const m = this.manifest ? await this.manifest() : null;
+    if (m && m.audio) for (const [k, v] of Object.entries(m.audio)) files[k] = 'assets/' + v.replace(/^assets\//, '');
+    const AC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!AC) return;
+    const dec = new AC(2, 44100, 44100);
+    await Promise.all(Object.entries(files).map(async ([k, url]) => {
+      try {
+        const r = await fetch(url, { cache: 'no-store' });
+        if (!r.ok || (r.headers.get('content-type') || '').includes('text/html')) return;
+        this.buffers[k] = await dec.decodeAudioData(await r.arrayBuffer());
+      } catch (e) { /* missing or undecodable: synth fallback */ }
+    }));
+    if (Object.keys(this.buffers).length) console.info('[audio] samples loaded:', Object.keys(this.buffers).join(', '));
+  }
+
+  playBuffer(key, { vol = 1, pitch = 1, when = 0, out = null, loop = false } = {}) {
+    const buf = this.buffers[key];
+    if (!buf || !this.ctx) return null;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf; src.loop = loop;
+    src.playbackRate.value = pitch;
+    const g = this.ctx.createGain(); g.gain.value = vol;
+    src.connect(g).connect(out || this.sfxGain);
+    src.start(this.ctx.currentTime + 0.003 + when);
+    return { src, g };
+  }
+
+  // a connecting strike: sharp transient + body thud + sub-bass, each layer with its own ±5% pitch
+  hit(kind = 'light', vol = 1, flavor = null) {
+    if (!this.ctx) return;
+    const r = () => 1 + (Math.random() * 2 - 1) * 0.05;
+    const w = { light: [0.8, 0.35, 0.25], medium: [0.9, 0.6, 0.55], heavy: [1, 0.9, 1], special: [0.9, 0.7, 0.8], ult: [0.8, 0.6, 0.7] }[kind] || [0.8, 0.5, 0.4];
+    const t = this.ctx.currentTime + 0.004;
+    // high: sharp slap
+    if (this.buffers.hit_sharp) this.playBuffer('hit_sharp', { vol: w[0] * vol, pitch: r() });
+    else { this._pitch = r(); this.noiseHit(t, { dur: 0.045, type: 'highpass', f0: 2600, gain: 0.7 * w[0] * vol }); this.noiseHit(t, { dur: 0.08, type: 'bandpass', f0: 1800, f1: 700, q: 1.2, gain: 0.5 * w[0] * vol }); }
+    // mid: body thud
+    this._pitch = r();
+    this.tone(t, { f0: 190, f1: 70, dur: 0.1 + w[1] * 0.08, gain: 0.6 * w[1] * vol });
+    this.noiseHit(t, { dur: 0.12, f0: 900, f1: 180, gain: 0.45 * w[1] * vol });
+    // low: sub-bass boom
+    if (this.buffers.heavy_bass) this.playBuffer('heavy_bass', { vol: w[2] * vol, pitch: r() });
+    else if (w[2] > 0.3) { this._pitch = r(); this.tone(t, { f0: 85, f1: 32, dur: 0.18 + w[2] * 0.2, gain: 0.9 * w[2] * vol }); if (kind === 'heavy') this.tone(t, { type: 'square', f0: 60, f1: 30, dur: 0.12, gain: 0.18 * vol }); }
+    this._pitch = 1;
+    if (flavor && flavor !== 'light' && flavor !== 'heavy') this.play(flavor, 0.8 * vol);
+  }
+
+  // swing whoosh, timed to land just before the hit
+  whoosh(delay = 0, strength = 1) {
+    if (!this.ctx) return;
+    const r = 1 + (Math.random() * 2 - 1) * 0.05;
+    if (this.buffers.whoosh) { this.playBuffer('whoosh', { vol: 0.6 * strength, pitch: r * (1.15 - strength * 0.2), when: delay }); return; }
+    const t = this.ctx.currentTime + 0.004 + delay;
+    this._pitch = r;
+    this.noiseHit(t, { dur: 0.1 + strength * 0.1, type: 'bandpass', f0: 450, f1: 2200, q: 1.4, gain: 0.25 * strength, attack: 0.04 + strength * 0.03 });
+    this.noiseHit(t, { dur: 0.08 + strength * 0.08, type: 'bandpass', f0: 900, f1: 3500, q: 2, gain: 0.12 * strength, attack: 0.05 });
+    this._pitch = 1;
+  }
+
+  // vocal grunts: sampled if provided (grunt_hurt, grunt_effort, grunt_ko[_n]), otherwise formant-synthesized
+  grunt(hero, type = 'hurt', vol = 1) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const key = hero.id + type;
+    if (now - (this.lastGrunt[hero.id] || 0) < (type === 'ko' ? 0 : 0.35)) return;
+    this.lastGrunt[hero.id] = now;
+    const sampled = Object.keys(this.buffers).filter((k) => k === 'grunt_' + type || k.startsWith('grunt_' + type + '_') || k === hero.id + '_' + type);
+    if (sampled.length) { this.playBuffer(sampled[Math.floor(Math.random() * sampled.length)], { vol, pitch: 1 + (Math.random() * 2 - 1) * 0.05 }); return; }
+    void key;
+    const V = { hulk: [72, 0.9, 1], doom: [92, 0.4, 0.7], thor: [105, 0.3, 0.6], cap: [118, 0.15, 0.5], ironman: [112, 0.2, 0.5], spiderman: [135, 0.1, 0.45], sentry: [115, 0.2, 0.55], gamora: [215, 0.05, 0.4] }[hero.id] || [120, 0.2, 0.5];
+    const [base, grit, breath] = V;
+    const f0 = base * (1 + (Math.random() * 2 - 1) * 0.06) * (type === 'effort' ? 1.08 : type === 'ko' ? 0.9 : 1.15);
+    const dur = type === 'ko' ? 0.7 : type === 'effort' ? 0.22 : 0.26;
+    const formants = type === 'effort' ? [[620, 6], [1080, 8], [2400, 10]] : type === 'ko' ? [[520, 6], [900, 8], [2300, 10]] : [[700, 5], [1150, 7], [2500, 10]];
+    const c = this.ctx, t = now + 0.005;
+    const out = c.createGain(); out.connect(this.sfxGain);
+    out.gain.setValueAtTime(0.0001, t); out.gain.exponentialRampToValueAtTime(0.5 * vol, t + 0.025); out.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    const src = c.createOscillator(); src.type = 'sawtooth';
+    src.frequency.setValueAtTime(f0 * 1.15, t); src.frequency.exponentialRampToValueAtTime(f0 * (type === 'ko' ? 0.6 : 0.8), t + dur);
+    const vib = c.createOscillator(); vib.frequency.value = 28 + grit * 30; const vg = c.createGain(); vg.gain.value = f0 * grit * 0.25; vib.connect(vg).connect(src.frequency);
+    const mix = c.createGain(); mix.gain.value = 0.35;
+    for (const [fq, q] of formants) { const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = fq * (hero.id === 'gamora' ? 1.18 : 1); bp.Q.value = q; src.connect(bp).connect(mix); }
+    let tail = mix;
+    if (hero.id === 'ironman' || hero.id === 'doom') { const hp = c.createBiquadFilter(); hp.type = 'bandpass'; hp.frequency.value = 1400; hp.Q.value = 0.8; mix.connect(hp); tail = hp; } // helmet / mask
+    tail.connect(out);
+    this.noiseHit(t, { dur: dur * 0.8, type: 'bandpass', f0: 1600, q: 0.7, gain: 0.12 * breath * vol, attack: 0.02, out });
+    src.start(t); vib.start(t); src.stop(t + dur + 0.05); vib.stop(t + dur + 0.05);
+  }
+
+  // looping stage ambience: sampled loop if provided, otherwise synthesized per stage
+  startAmbience(stageId) {
+    this.stopAmbience();
+    if (!this.ctx) { this.pendingAmb = stageId; return; }
+    const c = this.ctx, out = c.createGain(); out.connect(this.ambGain); out.gain.value = 0;
+    out.gain.linearRampToValueAtTime(1, c.currentTime + 1.5);
+    const nodes = [];
+    const own = this.buffers['ambience_' + stageId] ? 'ambience_' + stageId : (this.buffers.stage_ambience ? 'stage_ambience' : null);
+    if (own) { const p = this.playBuffer(own, { vol: 0.8, out, loop: true }); nodes.push(p.src); }
+    else {
+      const noise = (type, f, q, g) => { const s = c.createBufferSource(); s.buffer = this.noise; s.loop = true; const fl = c.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q; const gg = c.createGain(); gg.gain.value = g; s.connect(fl).connect(gg).connect(out); s.start(); nodes.push(s); return { fl, gg }; };
+      const drone = (f, g, type = 'sawtooth') => { const o = c.createOscillator(); o.type = type; o.frequency.value = f; const fl = c.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = 220; const gg = c.createGain(); gg.gain.value = g; o.connect(fl).connect(gg).connect(out); o.start(); nodes.push(o); };
+      if (stageId === 'rooftop') { noise('lowpass', 1800, 0.4, 0.55); noise('highpass', 5000, 0.5, 0.12); drone(48, 0.12, 'sine'); }
+      else if (stageId === 'space') { drone(41, 0.25); drone(41.6, 0.2); drone(82.5, 0.08); noise('lowpass', 300, 0.6, 0.18); }
+      else { const w = noise('bandpass', 500, 0.6, 0.35); const lfo = c.createOscillator(); lfo.frequency.value = 0.08; const lg = c.createGain(); lg.gain.value = 250; lfo.connect(lg).connect(w.fl.frequency); lfo.start(); nodes.push(lfo); drone(110, 0.03, 'sine'); drone(164.8, 0.025, 'sine'); }
+    }
+    this.amb = { out, nodes };
+  }
+  stopAmbience() {
+    if (!this.amb || !this.ctx) { this.amb = null; return; }
+    const { out, nodes } = this.amb; const t = this.ctx.currentTime;
+    out.gain.cancelScheduledValues(t); out.gain.setValueAtTime(out.gain.value, t); out.gain.linearRampToValueAtTime(0, t + 0.6);
+    setTimeout(() => { nodes.forEach((n) => { try { n.stop(); } catch (e) { /* already stopped */ } }); out.disconnect(); }, 700);
+    this.amb = null;
+  }
+  thunder() { if (!this.ctx) return; this._pitch = 0.9 + Math.random() * 0.2; const t = this.ctx.currentTime; this.noiseHit(t, { dur: 2.2, f0: 300, f1: 60, gain: 0.5, attack: 0.08, out: this.ambGain }); this.tone(t, { f0: 50, f1: 28, dur: 1.8, gain: 0.4, out: this.ambGain }); this._pitch = 1; }
 
   // ---------- announcer ----------
   say(text) {

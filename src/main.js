@@ -16,6 +16,7 @@ import { HUD } from './hud.js';
 import { DepthPrepass, makeLensPass, makeGradePass, Cine } from './post.js';
 import { PlanarReflection } from './reflect.js';
 import { setRim } from './enhance.js';
+import { preloadModels, prepareParsed, installModelBuilders, modelReport, registerModel, getManifest } from './models.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -140,6 +141,7 @@ class Showcase {
       const p = lerpPose(base, base, 0, this.pose[i]);
       const br = Math.sin(this.t * 2.4 + i * 1.7) * 0.05;
       addTo(p, 'spine', br); addTo(p, 'lEl', -br * 2); addTo(p, 'rEl', br * 2); p.hipY = br * 0.5;
+      if (rig.isModel) rig.setAnim(this.celebrate[i] > 0 ? 'victory' : 'idle');
       rig.update(p, dt, this.celebrate[i] > 0 ? 10 : 8);
       rig.setExpression(this.exprOverride || (this.celebrate[i] > 0 ? 'laugh' : (rig.heroId === 'doom' ? 'grit' : 'focus')));
       if (rig.face) rig.face.look = i === 0 ? 0.3 : -0.3;
@@ -637,6 +639,8 @@ function frame(now) {
     if (scene.userData.reflection) scene.userData.reflection.update(renderer, scene, camera);
     depthPre.render(renderer, scene, camera);
     lens.uniforms.cameraNear.value = camera.near; lens.uniforms.cameraFar.value = camera.far;
+    lens.uniforms.uProj.value.copy(camera.projectionMatrix); lens.uniforms.uInvProj.value.copy(camera.projectionMatrixInverse);
+    lens.uniforms.depthTexel.value.set(1 / depthPre.target.width, 1 / depthPre.target.height);
   }
   if (settings.quality !== 'low') { renderPass.scene = scene; renderPass.camera = camera; composer.render(dt); }
   else renderer.render(scene, camera);
@@ -663,6 +667,8 @@ window.__game.inspect = (heroIndex, framing = 'face', side = 0, expr = null, tur
 };
 window.__game.freezeCelebrate = (v) => { showcase.celebrate = [v, v]; };
 
+window.__game.THREE = THREE;
+window.__game.registerModel = (id, gltf) => { registerModel(id, gltf); installModelBuilders(HEROES.filter((h) => h.id === id)); };
 // debug/test hook: __game.quickMatch([p1HeroIndex, p2HeroIndex], stageIndex, [cpu1, cpu2])
 window.__game.quickMatch = (picks = [0, 1], stage = 0, cpu = [true, true]) => {
   app.picks = picks.slice(); app.stage = stage; app.mode = cpu[1] ? 'cpu' : 'pvp';
@@ -670,9 +676,23 @@ window.__game.quickMatch = (picks = [0, 1], stage = 0, cpu = [true, true]) => {
 };
 
 // ---------------------------------------------------------------- boot
-buildRoster();
-bindSettingsUI();
-applyQuality();
-goMenu();
-requestAnimationFrame((t) => { last = t; frame(t); });
-setTimeout(() => { renderPortraits(); $('loading').classList.add('hidden'); }, 30);
+(async () => {
+  // optional GLB characters (assets/models/*.glb) and sampled audio (assets/audio/*)
+  $('loading').textContent = 'Loading…';
+  try {
+    await preloadModels();
+    await prepareParsed();
+    installModelBuilders(HEROES);
+    const rep = modelReport();
+    window.__game.models = rep;
+    if (Object.keys(rep.models).length) console.info('[models] loaded', rep);
+  } catch (e) { console.warn('[models] skipped:', e); }
+  audio.manifest = getManifest;
+  audio.preload().catch(() => {});
+  buildRoster();
+  bindSettingsUI();
+  applyQuality();
+  goMenu();
+  requestAnimationFrame((t) => { last = t; frame(t); });
+  setTimeout(() => { renderPortraits(); $('loading').classList.add('hidden'); }, 30);
+})();

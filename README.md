@@ -67,6 +67,38 @@ That opens http://localhost:8000 in your browser. ES modules don't load from `fi
 
 Volume (master, music, effects), announcer voice, round time, rounds to win, graphics quality (Low turns off bloom and shadows for slower computers), screen shake and CPU difficulty.
 
+## Adding realistic models and sounds (optional)
+
+The game runs fully without these files. If you add them, they're picked up automatically on the next load. Only use files you have the rights to use.
+
+**Character models (GLB + Mixamo):**
+- Put a model at `assets/models/spiderman_realistic.glb` (or `spiderman.glb`) and `assets/models/sentry_realistic.glb` (or `sentry.glb`).
+- For other heroes, list them in `assets/manifest.json` (example below).
+- The model needs a skeleton, ideally rigged on Mixamo, and animations. Animations can be embedded in the GLB or kept as separate GLBs listed in the manifest.
+- Clips are matched by name: *Idle / Fighting Idle, Walk, Walk Back, Crouch, Block, Jump, Jab / Punch, Cross, Kick / Roundhouse, Hook, Uppercut, Sweep, Flying Kick, Hit Reaction, Knocked Down, Getting Up, Death, Victory, Taunt*. Missing clips fall back to the closest match.
+- Clips are made "in place" automatically (horizontal root motion is removed).
+- Clips crossfade between states, and attack clips are time-scaled to each move's timing.
+- Models are scaled to the hero's height, placed on the floor, and get PBR materials with skin sheen, sweat and rim light.
+- A model without animations is ignored, and that hero keeps the built-in version.
+
+**Sounds:**
+- `assets/audio/hit_sharp.wav` is the high-frequency slap layer.
+- `assets/audio/heavy_bass.wav` is the sub-bass layer.
+- `assets/audio/stage_ambience.mp3` is a looping stage ambience.
+- `assets/audio/whoosh.wav` is optional.
+- Grunts are optional too: add them through the manifest as `grunt_hurt`, `grunt_effort` and `grunt_ko` (`_1`, `_2`… for variations), or per hero as `spiderman_hurt` and so on.
+- Hits are layered (sharp + body + bass), each layer with ±5% random pitch. Any missing file is replaced by a synthesized layer.
+
+Example `assets/manifest.json`:
+
+```json
+{
+  "models": { "thor": "models/thor.glb" },
+  "animations": { "idle": "animations/Fighting Idle.glb", "punch": "animations/Punching.glb", "hit": "animations/Hit Reaction.glb" },
+  "audio": { "grunt_hurt_1": "audio/hurt1.wav", "ambience_space": "audio/space_hum.mp3" }
+}
+```
+
 ## Project layout
 
 ```
@@ -81,6 +113,10 @@ src/anatomy.js    skinned, sculpted body builder and painted part materials
 src/face.js       sculpted heads, eyes, teeth, brows and the expression rig
 src/cloth.js      Verlet cloth for capes
 src/textures.js   procedural noise and normal-map generation
+src/models.js     optional GLB/Mixamo characters: loading, cloning, crossfades, PBR
+src/post.js       depth of field, SSAO, motion/radial blur, film grade
+src/reflect.js    planar floor reflections (Ultra)
+src/enhance.js    character rim light, skin shading and sweat
 src/rig.js        pose library and pose blending
 src/arenas.js     procedural 3D stages and environment lighting
 src/effects.js    particles, lightning, shockwaves, light pool

@@ -397,7 +397,7 @@ function buildRooftop() {
   // occasional lightning in the clouds
   let next = 4, flashT = 0;
   updaters.push((dt, t) => {
-    if (t > next) { flashT = 0.35; next = t + 7 + Math.random() * 9; }
+    if (t > next) { flashT = 0.35; next = t + 7 + Math.random() * 9; group.userData.thunder = true; }
     flashT = Math.max(0, flashT - dt);
     const f = flashT > 0 ? (Math.sin(flashT * 60) > 0 ? 1 : 0.3) * flashT * 3 : 0;
     sky.material.uniforms.flash.value = f;

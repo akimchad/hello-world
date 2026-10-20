@@ -42,25 +42,57 @@ export class DepthPrepass {
 }
 
 export function makeLensPass(depth) {
-  return new ShaderPass({
+  const pass = new ShaderPass({
     uniforms: {
-      tDiffuse: { value: null }, tDepth: { value: depth.target.texture }, cameraNear: { value: 0.1 }, cameraFar: { value: 1200 },
+      tDiffuse: { value: null }, tDepth: { value: null }, cameraNear: { value: 0.1 }, cameraFar: { value: 1200 },
       focus: { value: 10 }, focusRange: { value: 6 }, maxBlur: { value: 7 }, dofOn: { value: 1 }, resolution: { value: new THREE.Vector2(1, 1) },
       blurDir: { value: new THREE.Vector2(1, 0) }, blurAmt: { value: 0 }, radialCenter: { value: new THREE.Vector2(0.5, 0.5) }, radialAmt: { value: 0 },
+      aoOn: { value: 1 }, aoRadius: { value: 0.55 }, aoStrength: { value: 0.85 }, uProj: { value: new THREE.Matrix4() }, uInvProj: { value: new THREE.Matrix4() }, depthTexel: { value: new THREE.Vector2(1 / 400, 1 / 300) },
     },
     vertexShader: VERT,
     fragmentShader: `
       #include <packing>
       uniform sampler2D tDiffuse; uniform sampler2D tDepth;
       uniform float cameraNear, cameraFar, focus, focusRange, maxBlur, dofOn, blurAmt, radialAmt;
-      uniform vec2 resolution, blurDir, radialCenter;
+      uniform vec2 resolution, blurDir, radialCenter, depthTexel;
+      uniform float aoOn, aoRadius, aoStrength; uniform mat4 uProj, uInvProj;
       varying vec2 vUv;
       vec3 S(vec2 uv) { vec3 c = texture2D(tDiffuse, uv).rgb; return (any(isnan(c)) || any(isinf(c))) ? vec3(0.0) : min(c, vec3(60.0)); }
       float viewZ(vec2 uv) { float d = unpackRGBAToDepth(texture2D(tDepth, uv)); return -perspectiveDepthToViewZ(d, cameraNear, cameraFar); }
+      vec3 viewPos(vec2 uv) { float d = unpackRGBAToDepth(texture2D(tDepth, uv)); vec4 c = vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0); vec4 v = uInvProj * c; return v.xyz / v.w; }
+      float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+      // screen-space ambient occlusion from the depth prepass
+      float ssao(vec2 uv) {
+        float d0 = unpackRGBAToDepth(texture2D(tDepth, uv));
+        if (d0 > 0.9999) return 1.0;
+        vec3 p = viewPos(uv);
+        vec3 px = viewPos(uv + vec2(depthTexel.x, 0.0)), py = viewPos(uv + vec2(0.0, depthTexel.y));
+        vec3 n = normalize(cross(px - p, py - p));
+        if (dot(n, p) > 0.0) n = -n;
+        float occ = 0.0;
+        float rnd = hash12(gl_FragCoord.xy) * 6.2831;
+        for (int i = 0; i < 10; i++) {
+          float fi = float(i);
+          float a = fi * 2.39996 + rnd;
+          float z = fract(fi * 0.618 + rnd * 0.1);
+          vec3 dir = normalize(vec3(cos(a) * sqrt(1.0 - z * z), sin(a) * sqrt(1.0 - z * z), z));
+          if (dot(dir, n) < 0.0) dir = -dir;
+          float sc = mix(0.15, 1.0, (fi / 10.0) * (fi / 10.0));
+          vec3 sp = p + dir * aoRadius * sc;
+          vec4 clip = uProj * vec4(sp, 1.0);
+          vec2 suv = clip.xy / clip.w * 0.5 + 0.5;
+          if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0) continue;
+          float sz = viewPos(suv).z;
+          float range = smoothstep(0.0, 1.0, aoRadius / max(abs(p.z - sz), 0.001));
+          occ += (sz >= sp.z + 0.02 ? 1.0 : 0.0) * range;
+        }
+        return 1.0 - aoStrength * occ / 10.0;
+      }
       void main() {
         vec4 base = texture2D(tDiffuse, vUv);
         if (any(isnan(base.rgb)) || any(isinf(base.rgb))) base.rgb = vec3(0.0);
         base.rgb = min(base.rgb, vec3(60.0));
+        if (aoOn > 0.5) base.rgb *= ssao(vUv);
         vec3 col = base.rgb;
         if (dofOn > 0.5) {
           float z = viewZ(vUv);
@@ -93,6 +125,9 @@ export function makeLensPass(depth) {
         gl_FragColor = vec4(col, base.a);
       }`,
   });
+  // ShaderPass clones uniforms and drops render-target textures, so assign it afterwards
+  pass.uniforms.tDepth.value = depth.target.texture;
+  return pass;
 }
 
 export function makeGradePass() {
