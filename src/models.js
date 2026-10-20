@@ -10,7 +10,8 @@
 // share the same (Mixamo) skeleton. Heroes without a model keep the procedural rig.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { Rig } from './rig.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { Rig, JOINTS } from './rig.js';
 import { enhanceRig } from './enhance.js';
 import { makeCanvas, normalCanvas, heightCanvas, overlayNoise, noiseCanvas, toTex } from './textures.js';
 
@@ -49,6 +50,7 @@ const CLAMP = new Set(['knockdown', 'down', 'ko']);
 
 const loader = new GLTFLoader();
 const buffers = new Map();    // heroId → ArrayBuffer
+const urls = new Map();       // heroId → source url (glb or fbx)
 const sharedClips = [];        // clips from assets/animations
 const report = { models: {}, animations: 0, errors: [] };
 
@@ -63,6 +65,49 @@ async function fetchBuffer(url) {
 }
 const parse = (buf) => new Promise((res, rej) => loader.parse(buf, '', res, rej));
 
+// Raimi-style suit fallbacks (used when a material's textures are missing)
+const PALETTE = {
+  suit: { color: 0xa30c12, roughness: 0.5, metalness: 0, sheen: 0.35 }, web: { color: 0x26262b, roughness: 0.32, metalness: 0.6 },
+  webblack: { color: 0x080808, roughness: 0.4, metalness: 0.3 }, soles: { color: 0x3a0c08, roughness: 0.75 },
+  backlogo: { color: 0x5a0306, roughness: 0.45 }, backlogorim: { color: 0x200102, roughness: 0.4 },
+  lens: { color: 0xdfe4ec, roughness: 0.1, metalness: 0.95, clearcoat: 1 }, frames: { color: 0x0c0c0c, roughness: 0.35, metalness: 0.4 },
+  glass: { color: 0x000000, roughness: 0.03, metalness: 0, clearcoat: 1, opacity: 0.18 },
+};
+
+async function parseFBX(buf, url) {
+  const dir = url.slice(0, url.lastIndexOf('/') + 1);
+  const manager = new THREE.LoadingManager();
+  let started = false, finish;
+  const settled = new Promise((r) => { finish = r; });
+  manager.onStart = () => { started = true; };
+  manager.onLoad = () => finish();
+  manager.onError = () => {};
+  const fl = new FBXLoader(manager);
+  fl.setResourcePath(dir + 'textures/');
+  const obj = fl.parse(buf, dir);
+  if (started) await Promise.race([settled, new Promise((r) => setTimeout(r, 20000))]);
+  // drop maps whose image never arrived; wire Roughness/Metallic siblings when textures exist
+  const tl = new THREE.TextureLoader();
+  const jobs = [];
+  obj.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
+      for (const k of ['map', 'normalMap', 'specularMap', 'bumpMap', 'emissiveMap', 'aoMap']) if (m[k] && !(m[k].image && m[k].image.width)) m[k] = null;
+      const key = (m.name || '').toLowerCase().replace(/[^a-z]/g, '');
+      m.userData.pbr = PALETTE[key] || null;
+      m.userData.hasBaseMap = !!m.map;
+      const src = m.map && m.map.image && m.map.image.src;
+      if (src && /_BaseColor/i.test(src)) {
+        for (const [kind, prop] of [['Roughness', 'roughnessMap'], ['Metallic', 'metalnessMap']]) {
+          jobs.push(tl.loadAsync(src.replace(/_BaseColor/i, '_' + kind)).then((t) => { t.flipY = m.map.flipY; m.userData[prop] = t; }).catch(() => {}));
+        }
+      }
+    }
+  });
+  await Promise.all(jobs);
+  return { scene: obj, animations: obj.animations || [] };
+}
+
 let manifestP = null;
 export function getManifest() {
   if (!manifestP) manifestP = fetch('assets/manifest.json', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
@@ -75,8 +120,8 @@ export async function preloadModels() {
   if (manifest && manifest.models) for (const [id, p] of Object.entries(manifest.models)) wanted[id] = ['assets/' + p.replace(/^assets\//, ''), ...(wanted[id] || [])];
   await Promise.all(Object.entries(wanted).map(async ([id, list]) => {
     for (const url of list) {
-      const buf = await fetchBuffer(url);
-      if (buf) { buffers.set(id, buf); report.models[id] = url; break; }
+      const buf = await fetchBuffer(url.split('/').map(encodeURIComponent).join('/'));
+      if (buf) { buffers.set(id, buf); urls.set(id, url); report.models[id] = url; break; }
     }
   }));
   if (buffers.size && manifest && manifest.animations) {
@@ -126,7 +171,21 @@ function upgradeMaterial(m, meshName) {
     if (m[k] !== undefined && m[k] !== null) { if (m[k] && m[k].isColor) p[k].copy(m[k]); else if (m[k] && m[k].isVector2) p[k].copy(m[k]); else p[k] = m[k]; }
   }
   p.name = m.name;
+  if (m.isMeshPhongMaterial) { p.roughness = 0.55; p.metalness = 0; }
+  const pal = m.userData && m.userData.pbr;
+  if (pal) {
+    if (!m.userData.hasBaseMap && pal.color !== undefined) p.color.set(pal.color);
+    if (pal.roughness !== undefined) p.roughness = pal.roughness;
+    if (pal.metalness !== undefined) p.metalness = pal.metalness;
+    if (pal.clearcoat) { p.clearcoat = pal.clearcoat; p.clearcoatRoughness = 0.05; }
+    if (pal.opacity !== undefined) { p.transparent = true; p.opacity = pal.opacity; p.depthWrite = false; }
+    if (pal.sheen) { p.sheen = pal.sheen; p.sheenColor = new THREE.Color(0xffb0b0); p.sheenRoughness = 0.5; }
+  }
+  if (m.userData && m.userData.roughnessMap) { p.roughnessMap = m.userData.roughnessMap; p.roughness = 1; }
+  if (m.userData && m.userData.metalnessMap) { p.metalnessMap = m.userData.metalnessMap; p.metalness = 1; }
+  if (m.userData && m.userData.hasBaseMap) p.color.set(0xffffff);
   if (!p.normalMap) { p.normalMap = microNormal(); p.normalScale.set(0.35, 0.35); }
+  if (pal) return p;
   const isSkin = /skin|face|head|body|flesh|arm|hand|neck/.test(name) && !/suit|armor|armour|metal|cloth|costume|mask|helmet/.test(name);
   const isHair = /hair|beard|brow/.test(name);
   const isMetal = /metal|armor|armour|gold|steel|chrome|helmet/.test(name) || (p.metalness > 0.5);
@@ -135,6 +194,26 @@ function upgradeMaterial(m, meshName) {
   else if (isMetal) { p.clearcoat = 0.4; p.clearcoatRoughness = 0.2; p.envMapIntensity = 1.4; }
   else { p.sheen = 0.25; p.sheenColor = new THREE.Color(0xd0d8ff); p.sheenRoughness = 0.6; } // fabric stays matte
   return p;
+}
+
+// game joint → Mixamo bone (keys are normalised by boneKey)
+const RETARGET = [['hips', 'hips'], ['spine', 'spine'], ['chest', 'spine2'], ['head', 'head'],
+  ['lSh', 'leftarm'], ['lEl', 'leftforearm'], ['lHand', 'lefthand'], ['rSh', 'rightarm'], ['rEl', 'rightforearm'], ['rHand', 'righthand'],
+  ['lHip', 'leftupleg'], ['lKnee', 'leftleg'], ['lFoot', 'leftfoot'], ['rHip', 'rightupleg'], ['rKnee', 'rightleg'], ['rFoot', 'rightfoot']];
+
+// an invisible skeleton with the same layout as the procedural heroes, driven by the pose library
+function makeDriver() {
+  const d = { scale: 1, shoulderW: 0.25, hipW: 0.1, upper: 0.3, fore: 0.27, thigh: 0.45, shin: 0.44, groundOffset: 0.09 };
+  const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+  const J = {};
+  const B = (n, p, x, y, z = 0) => { const o = new THREE.Object3D(); o.position.set(x, y, z); p.add(o); J[n] = o; };
+  const legLen = d.thigh + d.shin + 0.07;
+  B('hips', body, 0, legLen); B('spine', J.hips, 0, 0.05); B('chest', J.spine, 0, 0.27); B('head', J.chest, 0, 0.365, 0.008);
+  B('lSh', J.chest, d.shoulderW, 0.17, -0.005); B('rSh', J.chest, -d.shoulderW, 0.17, -0.005);
+  B('lEl', J.lSh, 0, -d.upper); B('rEl', J.rSh, 0, -d.upper); B('lHand', J.lEl, 0, -d.fore); B('rHand', J.rEl, 0, -d.fore);
+  B('lHip', J.hips, d.hipW, -0.02); B('rHip', J.hips, -d.hipW, -0.02);
+  B('lKnee', J.lHip, 0, -d.thigh); B('rKnee', J.rHip, 0, -d.thigh); B('lFoot', J.lKnee, 0, -d.shin); B('rFoot', J.rKnee, 0, -d.shin);
+  return new Rig(root, body, J, d);
 }
 
 class ModelRig extends Rig {
@@ -146,13 +225,13 @@ class ModelRig extends Rig {
     body.add(model);
     // measure in bind pose and normalise: feet on the floor, centred, target height
     model.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(model, true);
+    const box = new THREE.Box3().setFromObject(model, false);
     const h = Math.max(0.01, box.max.y - box.min.y);
     const target = HEIGHTS[hero.id] || 1.85;
     const s = target / h;
     model.scale.multiplyScalar(s);
     model.updateMatrixWorld(true);
-    const box2 = new THREE.Box3().setFromObject(model, true);
+    const box2 = new THREE.Box3().setFromObject(model, false);
     const c = box2.getCenter(new THREE.Vector3());
     model.position.x -= c.x; model.position.z -= c.z; model.position.y -= box2.min.y;
     // bones
@@ -193,6 +272,23 @@ class ModelRig extends Rig {
     this.actions = new Map();
     this.current = null; this.currentKey = null; this.token = null;
     this.hasAnims = clips.length > 0;
+    // no clips: retarget the procedural pose library onto the Mixamo skeleton
+    this.retarget = null;
+    const pairs = RETARGET.map(([dj, mb]) => [dj, bones[mb]]).filter(([, b]) => b);
+    if (!this.hasAnims && pairs.length >= 12 && hips) {
+      const drv = makeDriver();
+      root.add(drv.root);
+      for (const j of JOINTS) drv.J[j].rotation.set(0, 0, 0);
+      drv.J.lSh.rotation.z = Math.PI / 2; drv.J.rSh.rotation.z = -Math.PI / 2; // match the model's T-pose
+      root.updateMatrixWorld(true);
+      const cal = pairs.map(([dj, mb]) => ({ drv: drv.J[dj], mb, rdInv: drv.J[dj].getWorldQuaternion(new THREE.Quaternion()).invert(), rm: mb.getWorldQuaternion(new THREE.Quaternion()) }));
+      const mRest = root.worldToLocal(hips.getWorldPosition(new THREE.Vector3()));
+      const dRest = root.worldToLocal(drv.J.hips.getWorldPosition(new THREE.Vector3()));
+      // fists: curl the finger bones a little
+      const fingers = [];
+      model.traverse((o) => { if (o.isBone && /hand(index|middle|ring|pinky)[123]$/i.test(boneKey(o.name))) fingers.push(o); });
+      this.retarget = { drv, cal, mRest, dRest, ratio: mRest.y / dRest.y, fingers, q: new THREE.Quaternion(), pq: new THREE.Quaternion(), v: new THREE.Vector3() };
+    }
     if (hero.id === 'sentry') { const aura = new THREE.PointLight(0xffd070, 0, 3, 2); chest.add(aura); this.aura = aura; }
     this.collectFlashMaterials();
     enhanceRig(this);
@@ -233,7 +329,28 @@ class ModelRig extends Rig {
     this.current = action; this.currentKey = key; this.token = token;
   }
 
-  update(pose, dt) { this.mixer.update(dt); }
+  update(pose, dt, rate = 16) {
+    if (this.hasAnims) { this.mixer.update(dt); return; }
+    const R = this.retarget;
+    if (!R) return;
+    R.drv.update(pose, dt, rate);
+    this.root.updateMatrixWorld(true);
+    // hips: follow the driver's hips, scaled to the model's proportions
+    const hips = R.cal[0].mb;
+    const d = this.root.worldToLocal(R.drv.J.hips.getWorldPosition(R.v));
+    d.sub(R.dRest).multiplyScalar(R.ratio).add(R.mRest);
+    d.y += 0.1 * (R.drv.cur.lie || 0);
+    hips.position.copy(hips.parent.worldToLocal(this.root.localToWorld(d)));
+    hips.updateMatrixWorld(true);
+    // joints: transfer each driver bone's world rotation (relative to its T-pose) onto the model bone
+    for (const c of R.cal) {
+      c.drv.getWorldQuaternion(R.q).multiply(c.rdInv).multiply(c.rm);
+      c.mb.parent.getWorldQuaternion(R.pq);
+      c.mb.quaternion.copy(R.pq.invert().multiply(R.q));
+      c.mb.updateMatrixWorld(true);
+    }
+    if (!R.curled) { R.curled = true; for (const f of R.fingers) f.rotation.z += /left/i.test(f.name) ? 1.1 : -1.1; }
+  }
 }
 
 // deep-clone a skinned scene and rebind each skeleton to the cloned bones
@@ -255,7 +372,7 @@ function cloneSkinned(source) {
 const parsed = new Map(); // heroId → parsed gltf (never added to a scene directly)
 export async function prepareParsed() {
   for (const [id, buf] of buffers) {
-    try { parsed.set(id, await parse(buf.slice(0))); }
+    try { parsed.set(id, /\.fbx$/i.test(urls.get(id) || '') ? await parseFBX(buf, urls.get(id)) : await parse(buf.slice(0))); }
     catch (e) { report.errors.push(id + ': ' + e.message); buffers.delete(id); }
   }
 }
@@ -264,7 +381,7 @@ export function buildModelRig(hero, alt) {
   const gltf = parsed.get(hero.id);
   if (!gltf) return null;
   const rig = new ModelRig({ scene: cloneSkinned(gltf.scene), animations: gltf.animations }, hero, alt);
-  if (!rig.hasAnims) { report.errors.push(hero.id + ': model has no animations, using the built-in hero instead'); parsed.delete(hero.id); return null; }
+  if (!rig.hasAnims && !rig.retarget) { report.errors.push(hero.id + ': model has no animations or Mixamo skeleton, using the built-in hero instead'); parsed.delete(hero.id); return null; }
   return rig;
 }
 

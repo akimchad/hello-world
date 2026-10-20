@@ -71,7 +71,10 @@ Volume (master, music, effects), announcer voice, round time, rounds to win, gra
 
 The game runs fully without these files. If you add them, they're picked up automatically on the next load. Only use files you have the rights to use.
 
-**Character models (GLB + Mixamo):**
+**Character models (GLB or FBX + Mixamo):**
+- `.fbx` files work too. List them in `assets/manifest.json`. For example, Spider-Man currently uses `models/raimisuit+-+mixamorig.fbx`.
+- Put an FBX's texture PNGs in `assets/models/textures/` using their original file names. `*_BaseColor`, `*_Normal`, `*_Roughness` and `*_Metallic` are wired up automatically.
+- Models **without animation clips** still work if they have a Mixamo skeleton. The game's own pose system is retargeted onto the bones, so every move, hit reaction and K.O. animates.
 - Put a model at `assets/models/spiderman_realistic.glb` (or `spiderman.glb`) and `assets/models/sentry_realistic.glb` (or `sentry.glb`).
 - For other heroes, list them in `assets/manifest.json` (example below).
 - The model needs a skeleton, ideally rigged on Mixamo, and animations. Animations can be embedded in the GLB or kept as separate GLBs listed in the manifest.
