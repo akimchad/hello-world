@@ -71,22 +71,29 @@ Volume (master, music, effects), announcer voice, round time, rounds to win, gra
 
 The game runs fully without these files. If you add them, they're picked up automatically on the next load. Only use files you have the rights to use.
 
-**Character models (GLB or FBX + Mixamo):**
-- `.fbx` files work too. List them in `assets/manifest.json`. For example, Spider-Man currently uses `models/raimisuit+-+mixamorig.fbx`.
-- Put an FBX's texture PNGs in `assets/models/textures/` using their original file names. `*_BaseColor`, `*_Normal`, `*_Roughness` and `*_Metallic` are wired up automatically.
-- **Static meshes with no skeleton** (FBX, GLB, or STL via `tools/decimate_stl.py`) get auto-rigged when their manifest entry has `"autorig": true`. The game detects orientation and pose, fits a skeleton, computes skin weights and animates the mesh with the built-in moves.
+**Character models (GLB, FBX or decimated sculpts):**
+- List one model per hero in `assets/manifest.json` (example below). Model files stay local: `assets/models/` is git-ignored.
+- **Rigged models** work whatever the skeleton naming: Mixamo, 3ds Max Biped (`Bip01 L UpperArm`), Unreal/Fortnite (`upperarm_l`, `spine_03`) or Rigify. The game's own pose system is retargeted onto the bones, so every move, hit reaction and K.O. animates. The rest pose (T-pose, A-pose or relaxed) is measured from the bones.
+- On load each model is turned to face forward, scaled to the hero's height (this also sets the hurtbox and attack reach), centred, and placed with its feet on the floor.
+- Load-time fixes:
+  - Skins whose bind data is in another space than the bones are re-bound.
+  - Unskinned parts (belts, clasps) are attached to the nearest bone.
+  - Bone chains outside the body (capes hung off the scene root) are hung on the body.
+- **Static meshes with no skeleton** get auto-rigged when their entry has `"autorig": true`. The game detects orientation, fits a skeleton, computes skin weights and animates the mesh with the built-in moves.
   - `"upAxis"`, `"flip"` and `"turn"` fix an unusual orientation.
   - `"weldedArms": true` helps sculpts whose arms touch the body.
-- **Huge STL sculpts:** `python3 tools/decimate_stl.py big.stl assets/models/name.mkm 70000` makes a game-ready mesh. Hulk's materials (green skin and purple pants, with detail maps) are generated in code.
-- Models **without animation clips** still work if they have a Mixamo skeleton. The game's own pose system is retargeted onto the bones, so every move, hit reaction and K.O. animates.
-- Put a model at `assets/models/spiderman_realistic.glb` (or `spiderman.glb`) and `assets/models/sentry_realistic.glb` (or `sentry.glb`).
-- For other heroes, list them in `assets/manifest.json` (example below).
-- The model needs a skeleton, ideally rigged on Mixamo, and animations. Animations can be embedded in the GLB or kept as separate GLBs listed in the manifest.
-- Clips are matched by name: *Idle / Fighting Idle, Walk, Walk Back, Crouch, Block, Jump, Jab / Punch, Cross, Kick / Roundhouse, Hook, Uppercut, Sweep, Flying Kick, Hit Reaction, Knocked Down, Getting Up, Death, Victory, Taunt*. Missing clips fall back to the closest match.
-- Clips are made "in place" automatically (horizontal root motion is removed).
-- Clips crossfade between states, and attack clips are time-scaled to each move's timing.
-- Models are scaled to the hero's height, placed on the floor, and get PBR materials with skin sheen, sweat and rim light.
-- A model without animations is ignored, and that hero keeps the built-in version.
+  - Multi-part sculpts use their part names: leg/belt parts never follow the arms, and head and eye parts move with the head.
+- **Textures:**
+  - FBX-embedded textures load automatically.
+  - `"textures"` points at a folder for external ones.
+  - `"maps"` adds maps the file doesn't reference: `map`, `normalMap`, `specularMap`, `emissiveMap`.
+  - Legacy specular maps become PBR roughness/metalness maps.
+  - Non-standard (game-ripped) normal maps are converted.
+  - Every hero has a material recipe in `src/models.js` (metal armour, fabric sheen, skin scattering, emissive glows). All parts cast and receive shadows.
+- **Hero clips over the pose system:** `"clips": { "punch": "attack_light1", "block": "blocking" }` plays a model's own animations for those game keys and blends them over the retargeted pose. Cap and Thor use their MUA attack animations this way. Keys: `idle`, `walk`, `block`, `punch`, `punch2`, `kick`, `heavy`, `sweep`, `uppercut`, `special`.
+- **Full Mixamo clip sets** (embedded or listed under `"animations"`) replace retargeting when they cover punches, kicks, hits and knockdowns. Clips are matched by name (*Fighting Idle, Walk, Jab, Cross, Roundhouse, Hook, Uppercut, Hit Reaction, Knocked Down, Getting Up, Death, Victory…*), made "in place", crossfaded and time-scaled to each move.
+- **Huge sculpts:** `python3 tools/glb_to_mkm.py big.glb assets/models/name.mkm 100000` decimates a GLB (e.g. a Nomad Sculpt export) into a game-ready `.mkm`, keeping named parts and vertex paint. Use `tools/decimate_stl.py` for STL files. Hulk's skin, purple pants, hair and eyes are split by that paint.
+- A hero whose model is missing or unusable keeps its built-in version, so the public build works without any model files.
 
 **Sounds:**
 - `assets/audio/hit_sharp.wav` is the high-frequency slap layer.
@@ -100,7 +107,11 @@ Example `assets/manifest.json`:
 
 ```json
 {
-  "models": { "thor": "models/thor.glb" },
+  "models": {
+    "thor": { "url": "models/thor/thor.fbx", "clips": { "punch": "attack_light1", "special": "power_2" } },
+    "hulk": { "url": "models/hulk.mkm", "autorig": true, "weldedArms": true },
+    "ironman": { "url": "models/ironman.fbx", "autorig": true, "textures": "models/ironman/textures/", "maps": { "map": "body_D.png", "emissiveMap": "body_E.png" } }
+  },
   "animations": { "idle": "animations/Fighting Idle.glb", "punch": "animations/Punching.glb", "hit": "animations/Hit Reaction.glb" },
   "audio": { "grunt_hurt_1": "audio/hurt1.wav", "ambience_space": "audio/space_hum.mp3" }
 }
@@ -120,7 +131,9 @@ src/anatomy.js    skinned, sculpted body builder and painted part materials
 src/face.js       sculpted heads, eyes, teeth, brows and the expression rig
 src/cloth.js      Verlet cloth for capes
 src/textures.js   procedural noise and normal-map generation
-src/models.js     optional GLB/Mixamo characters: loading, cloning, crossfades, PBR
+src/models.js     imported characters: loading, skeleton mapping, retargeting, clips, PBR
+src/autorig.js    auto-rigging for static meshes and sculpts
+tools/            offline mesh decimators (STL / GLB → .mkm)
 src/post.js       depth of field, SSAO, motion/radial blur, film grade
 src/reflect.js    planar floor reflections (Ultra)
 src/enhance.js    character rim light, skin shading and sweat

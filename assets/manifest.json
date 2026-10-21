@@ -1,18 +1,54 @@
 {
   "models": {
     "spiderman": {
-      "url": "models/raimisuit+-+no+rig.fbx",
-      "textures": "models/textures/",
+      "url": "models/spiderman/extracted/spiderman.fbx",
       "autorig": true
     },
     "ironman": {
-      "url": "models/Iron+Man/Iron Man.fbx",
-      "autorig": true
+      "url": "models/iron-man-with-no-rig/extracted/iron-man-rig/source/iron man.fbx",
+      "autorig": true,
+      "textures": "models/iron-man-with-no-rig/extracted/iron-man-rig/textures/",
+      "maps": {
+        "map": "M-COC_iOS_HERO_Tony_Stark_Iron_Man_Mark_VII_Body_D.png",
+        "normalMap": "M-COC_iOS_HERO_Tony_Stark_Iron_Man_Mark_VII_Body_N.png",
+        "specularMap": "M-COC_iOS_HERO_Tony_Stark_Iron_Man_Mark_VII_Body_S.png",
+        "emissiveMap": "M-COC_iOS_HERO_Tony_Stark_Iron_Man_Mark_VII_Body_E.png"
+      }
+    },
+    "thor": {
+      "url": "models/10-thor-mua/source/10_thor.fbx",
+      "clips": {
+        "idle": "idle", "block": "blocking",
+        "punch": "attack_light1", "punch2": "attack_light2", "kick": "attack_light3",
+        "heavy": "attack_heavy1", "uppercut": "attack_popup1", "sweep": "attack_trip1", "special": "power_2"
+      }
     },
     "hulk": {
-      "url": "models/hulk_game.mkm",
+      "url": "models/source/hulk.mkm",
       "autorig": true,
       "weldedArms": true
+    },
+    "cap": {
+      "url": "models/07-captain-america-mua/source/07_captamerica.fbx",
+      "clips": {
+        "idle": "idle", "block": "blocking",
+        "punch": "attack_light1", "punch2": "attack_light2", "kick": "attack_light3",
+        "heavy": "attack_heavy1", "uppercut": "attack_knockback1", "special": "power_1"
+      }
+    },
+    "gamora": {
+      "url": "models/fn-gamora-by-sidgara-detqt8i/extracted/FN Gamora/FN Gamora.fbx"
+    },
+    "doom": {
+      "url": "models/dr-doom-v2/extracted/Dr Doom V2/Dr Doom V2 - Visiion.fbx"
+    },
+    "sentry": {
+      "url": "models/sentry-by-wilson-neto-oficial-deu1jcb/extracted/Sentry/Sentry_Current_LW.fbx",
+      "textures": "models/sentry-by-wilson-neto-oficial-deu1jcb/extracted/Sentry/",
+      "maps": {
+        "specularMap": "Sentry_Current_Spec.png",
+        "emissiveMap": "Sentry_Current_Emiss.png"
+      }
     }
   }
 }

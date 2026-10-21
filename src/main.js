@@ -680,8 +680,9 @@ window.__game.quickMatch = (picks = [0, 1], stage = 0, cpu = [true, true]) => {
   // optional GLB characters (assets/models/*.glb) and sampled audio (assets/audio/*)
   $('loading').textContent = 'Loading…';
   try {
-    await preloadModels();
-    await prepareParsed();
+    const loading = $('loading');
+    await preloadModels((n, total) => { loading.textContent = `Loading heroes… ${n}/${total}`; });
+    await prepareParsed((n) => { loading.textContent = `Preparing heroes… ${n}`; });
     installModelBuilders(HEROES);
     const rep = modelReport();
     window.__game.models = rep;

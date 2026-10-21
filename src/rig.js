@@ -102,7 +102,7 @@ export class Rig {
 
   collectFlashMaterials() {
     const all = [];
-    this.root.traverse((o) => { if (o.isMesh && o.material && !Array.isArray(o.material) && o.material.emissive) all.push(o.material); });
+    this.root.traverse((o) => { if (o.isMesh && o.material) for (const m of [].concat(o.material)) if (m.emissive) all.push(m); });
     this.flashMats = [...new Set(all)];
     this.baseEmissive = this.flashMats.map((mm) => mm.emissive.clone());
     this.baseEI = this.flashMats.map((mm) => mm.emissiveIntensity);

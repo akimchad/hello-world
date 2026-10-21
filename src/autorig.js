@@ -7,7 +7,7 @@ import * as THREE from 'three';
 
 const V = THREE.Vector3;
 
-function segDist(p, a, b) {
+export function segDist(p, a, b) {
   const abx = b.x - a.x, aby = b.y - a.y, abz = b.z - a.z;
   const t = Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.y - a.y) * aby + (p.z - a.z) * abz) / (abx * abx + aby * aby + abz * abz || 1)));
   const dx = p.x - (a.x + abx * t), dy = p.y - (a.y + aby * t), dz = p.z - (a.z + abz * t);
@@ -19,7 +19,7 @@ function bake(object) {
   object.updateMatrixWorld(true);
   const parts = [];
   object.traverse((o) => {
-    if (!o.isMesh) return;
+    if (!o.isMesh || !(o.geometry.attributes.position && o.geometry.attributes.position.count)) return;
     const g = o.geometry.clone();
     g.applyMatrix4(o.matrixWorld);
     if (!g.attributes.normal) g.computeVertexNormals();
@@ -57,9 +57,19 @@ export function autoRig(object, { height = 1.85, upAxis = 'y', flip = false, tur
   if (rotY) { const R = new THREE.Matrix4().makeRotationY(rotY); parts.forEach((p) => p.geo.applyMatrix4(R)); }
   // toes point forward: if the feet extend further toward -Z, turn around
   box = bounds(parts); size = box.getSize(new V());
-  let footZ = 0, footN = 0, midZ = 0, midN = 0;
-  eachVertex(parts, (v) => { const f = (v.y - box.min.y) / size.y; if (f < 0.04) { footZ += v.z; footN++; } else if (f > 0.3 && f < 0.5) { midZ += v.z; midN++; } }, 2);
-  let facingBack = footN && midN ? (footZ / footN) < (midZ / midN) : false;
+  let facingBack = false;
+  const eyes = parts.filter((p) => /eye/i.test(p.name));
+  if (eyes.length && eyes.length < parts.length) {
+    // sculpts with separate eyeballs: the eyes sit in front of the head's centre
+    const e = bounds(eyes).getCenter(new V());
+    let hz = 0, hn = 0;
+    eachVertex(parts.filter((p) => !eyes.includes(p)), (v) => { if (Math.abs(v.y - e.y) < 0.06 * size.y) { hz += v.z; hn++; } }, 3);
+    facingBack = hn ? e.z < hz / hn : false;
+  } else {
+    let footZ = 0, footN = 0, midZ = 0, midN = 0;
+    eachVertex(parts, (v) => { const f = (v.y - box.min.y) / size.y; if (f < 0.04) { footZ += v.z; footN++; } else if (f > 0.3 && f < 0.5) { midZ += v.z; midN++; } }, 2);
+    facingBack = footN && midN ? (footZ / footN) < (midZ / midN) : false;
+  }
   if (flip) facingBack = !facingBack;
   if (facingBack) { const R = new THREE.Matrix4().makeRotationY(Math.PI); parts.forEach((p) => p.geo.applyMatrix4(R)); }
   // ---------- scale to the hero height, feet on the floor, centred ----------
@@ -132,7 +142,10 @@ export function autoRig(object, { height = 1.85, upAxis = 'y', flip = false, tur
     S.push([nm + 'UpLeg', J[side + 'Hip'], J[side + 'Knee'], sx], [nm + 'Leg', J[side + 'Knee'], J[side + 'Ankle'], sx], [nm + 'Foot', J[side + 'Ankle'], J[side + 'Toe'], sx]);
   }
   const idx = (name) => list.indexOf(bones[name]);
-  const segs = S.map(([n, a, b, sd]) => ({ bi: idx(n), a, b, sd, limbArm: /Arm|Hand/.test(n), limbLeg: /Leg|Foot/.test(n) }));
+  const segs = S.map(([n, a, b, sd]) => ({ name: n, bi: idx(n), a, b, sd, limbArm: /Arm|Hand/.test(n), limbLeg: /Leg|Foot/.test(n) }));
+  // multi-part sculpts: named parts constrain which bones may move them
+  const LEGPART = /leg|pant|short|belt|boot|shoe|foot/i, HEADPART = /eye|head|face|hair|brow/i;
+  const hasLegPart = parts.some((pt) => LEGPART.test(pt.name));
 
   const skeleton = new THREE.Skeleton(list.map((b) => b));
   const group = new THREE.Group();
@@ -167,12 +180,15 @@ export function autoRig(object, { height = 1.85, upAxis = 'y', flip = false, tur
     const geo = part.geo;
     const pos = geo.attributes.position;
     const si = new Uint16Array(pos.count * 4), sw = new Float32Array(pos.count * 4);
+    const rule = HEADPART.test(part.name) ? 'head' : LEGPART.test(part.name) ? 'legs' : null;
     for (let i = 0; i < pos.count; i++) {
       p.fromBufferAttribute(pos, i);
       const xs = Math.sign(p.x) || 1;
       let b1 = -1, d1 = 1e9, b2 = -1, d2 = 1e9;
-      const armV = isArmVertex(p);
+      // legs/belt parts never follow the arms; in an upper-body part only the arms hang below the hips
+      const armV = rule ? false : hasLegPart && p.y < J.hips.y - 0.06 * H ? true : isArmVertex(p);
       for (const sg of segs) {
+        if (rule === 'head' && sg.name !== 'Head' && sg.name !== 'Neck') continue;
         if (sg.sd && sg.sd !== xs && Math.abs(p.x) > 0.02 * H) continue;      // limbs only on their side
         if (armV === true && !sg.limbArm) continue;
         if (armV === false && sg.limbArm) continue;
