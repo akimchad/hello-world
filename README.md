@@ -74,6 +74,10 @@ The game runs fully without these files. If you add them, they're picked up auto
 **Character models (GLB or FBX + Mixamo):**
 - `.fbx` files work too. List them in `assets/manifest.json`. For example, Spider-Man currently uses `models/raimisuit+-+mixamorig.fbx`.
 - Put an FBX's texture PNGs in `assets/models/textures/` using their original file names. `*_BaseColor`, `*_Normal`, `*_Roughness` and `*_Metallic` are wired up automatically.
+- **Static meshes with no skeleton** (FBX, GLB, or STL via `tools/decimate_stl.py`) get auto-rigged when their manifest entry has `"autorig": true`. The game detects orientation and pose, fits a skeleton, computes skin weights and animates the mesh with the built-in moves.
+  - `"upAxis"`, `"flip"` and `"turn"` fix an unusual orientation.
+  - `"weldedArms": true` helps sculpts whose arms touch the body.
+- **Huge STL sculpts:** `python3 tools/decimate_stl.py big.stl assets/models/name.mkm 70000` makes a game-ready mesh. Hulk's materials (green skin and purple pants, with detail maps) are generated in code.
 - Models **without animation clips** still work if they have a Mixamo skeleton. The game's own pose system is retargeted onto the bones, so every move, hit reaction and K.O. animates.
 - Put a model at `assets/models/spiderman_realistic.glb` (or `spiderman.glb`) and `assets/models/sentry_realistic.glb` (or `sentry.glb`).
 - For other heroes, list them in `assets/manifest.json` (example below).

@@ -3,5 +3,5 @@
 __pycache__/
 
 # third-party character models and their textures stay local
-assets/models/*.fbx
-assets/models/textures/
+assets/models/*
+!assets/models/.gitkeep

@@ -1,5 +1,18 @@
 {
   "models": {
-    "spiderman": "models/raimisuit+-+mixamorig.fbx"
+    "spiderman": {
+      "url": "models/raimisuit+-+no+rig.fbx",
+      "textures": "models/textures/",
+      "autorig": true
+    },
+    "ironman": {
+      "url": "models/Iron+Man/Iron Man.fbx",
+      "autorig": true
+    },
+    "hulk": {
+      "url": "models/hulk_game.mkm",
+      "autorig": true,
+      "weldedArms": true
+    }
   }
 }

@@ -13,6 +13,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { Rig, JOINTS } from './rig.js';
 import { enhanceRig } from './enhance.js';
+import { autoRig, boxUVs } from './autorig.js';
 import { makeCanvas, normalCanvas, heightCanvas, overlayNoise, noiseCanvas, toTex } from './textures.js';
 
 const DEFAULT_MODELS = {
@@ -50,7 +51,8 @@ const CLAMP = new Set(['knockdown', 'down', 'ko']);
 
 const loader = new GLTFLoader();
 const buffers = new Map();    // heroId → ArrayBuffer
-const urls = new Map();       // heroId → source url (glb or fbx)
+const urls = new Map();       // heroId → source url (glb, fbx or mkm)
+const opts = new Map();       // heroId → manifest options { textures, autorig, upAxis, flip, turn }
 const sharedClips = [];        // clips from assets/animations
 const report = { models: {}, animations: 0, errors: [] };
 
@@ -74,7 +76,7 @@ const PALETTE = {
   glass: { color: 0x000000, roughness: 0.03, metalness: 0, clearcoat: 1, opacity: 0.18 },
 };
 
-async function parseFBX(buf, url) {
+async function parseFBX(buf, url, textures = null) {
   const dir = url.slice(0, url.lastIndexOf('/') + 1);
   const manager = new THREE.LoadingManager();
   let started = false, finish;
@@ -83,7 +85,7 @@ async function parseFBX(buf, url) {
   manager.onLoad = () => finish();
   manager.onError = () => {};
   const fl = new FBXLoader(manager);
-  fl.setResourcePath(dir + 'textures/');
+  fl.setResourcePath(textures ? 'assets/' + textures.replace(/^assets\//, '') : dir + 'textures/');
   const obj = fl.parse(buf, dir);
   if (started) await Promise.race([settled, new Promise((r) => setTimeout(r, 20000))]);
   // drop maps whose image never arrived; wire Roughness/Metallic siblings when textures exist
@@ -117,7 +119,11 @@ export function getManifest() {
 export async function preloadModels() {
   const manifest = await getManifest();
   const wanted = { ...DEFAULT_MODELS };
-  if (manifest && manifest.models) for (const [id, p] of Object.entries(manifest.models)) wanted[id] = ['assets/' + p.replace(/^assets\//, ''), ...(wanted[id] || [])];
+  if (manifest && manifest.models) for (const [id, p] of Object.entries(manifest.models)) {
+    const o = typeof p === 'string' ? { url: p } : p;
+    opts.set(id, o);
+    wanted[id] = ['assets/' + o.url.replace(/^assets\//, ''), ...(wanted[id] || [])];
+  }
   await Promise.all(Object.entries(wanted).map(async ([id, list]) => {
     for (const url of list) {
       const buf = await fetchBuffer(url.split('/').map(encodeURIComponent).join('/'));
@@ -164,7 +170,44 @@ function microNormal() {
   return detailNormal;
 }
 
-function upgradeMaterial(m, meshName) {
+let skinPores = null, weave = null;
+function heroDetail(kind) {
+  if (kind === 'pores') return skinPores || (skinPores = toTex(normalCanvas(heightCanvas(512, 512, (g, w, h) => { overlayNoise(g, w, h, noiseCanvas(256, 96, 501, 2), 0.7); overlayNoise(g, w, h, noiseCanvas(256, 12, 502, 4), 0.5); }), 2.2), { srgb: false }));
+  return weave || (weave = toTex(normalCanvas(heightCanvas(256, 256, (g, w, h) => { for (let x = 0; x < w; x += 4) { g.fillStyle = x % 8 ? '#9a9a9a' : '#6a6a6a'; g.fillRect(x, 0, 2, h); } for (let y = 0; y < h; y += 4) { g.fillStyle = y % 8 ? 'rgba(160,160,160,0.6)' : 'rgba(90,90,90,0.6)'; g.fillRect(0, y, w, 2); } overlayNoise(g, w, h, noiseCanvas(128, 16, 503, 3), 0.4); }), 2.5), { srgb: false }));
+}
+
+// per-hero material recipes for imported models
+function heroRecipe(heroId, p) {
+  const n = (p.name || '').toLowerCase();
+  if (heroId === 'hulk') {
+    if (n === 'hulk_skin') {
+      p.color.set(0x2e7d32); p.roughness = 0.6; p.metalness = 0; p.normalMap = heroDetail('pores'); p.normalScale.set(0.6, 0.6);
+      p.sheen = 0.35; p.sheenColor = new THREE.Color(0x9cff9c); p.sheenRoughness = 0.5; p.clearcoat = 0.05; p.clearcoatRoughness = 0.35; p.userData.skin = true;
+    } else if (n === 'hulk_pants') {
+      p.color.set(0x3a1d6e); p.roughness = 0.92; p.metalness = 0; p.normalMap = heroDetail('weave'); p.normalScale.set(0.8, 0.8);
+      p.sheen = 0.5; p.sheenColor = new THREE.Color(0x9a7ad8); p.sheenRoughness = 0.7;
+    }
+    return true;
+  }
+  if (heroId === 'ironman') {
+    if (/arc/.test(n)) { p.color.set(0xd8f6ff); p.emissive = new THREE.Color(0x9fe8ff); p.emissiveIntensity = 5; p.roughness = 0.2; p.metalness = 0; }
+    else if (/red/.test(n)) { p.color.set(0x8c0d0a); p.metalness = 0.85; p.roughness = 0.22; p.clearcoat = 1; p.clearcoatRoughness = 0.08; p.envMapIntensity = 1.5; }
+    else if (/yellow|gold/.test(n)) { p.color.set(0xd4a020); p.metalness = 0.9; p.roughness = 0.2; p.clearcoat = 1; p.clearcoatRoughness = 0.08; p.envMapIntensity = 1.5; }
+    else if (/white|silver/.test(n)) { p.color.set(0xd6dae0); p.metalness = 0.9; p.roughness = 0.18; p.envMapIntensity = 1.4; }
+    else if (/gl/.test(n)) { p.color.set(0x0a0c10); p.metalness = 0.2; p.roughness = 0.05; p.clearcoat = 1; p.transparent = true; p.opacity = 0.6; }
+    p.normalMap = null;
+    return true;
+  }
+  if (heroId === 'spiderman') {
+    for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap']) if (p[k]) p[k].anisotropy = 8;
+    if (p.normalMap && p.normalMap !== microNormal()) p.normalScale.set(1.15, 1.15);
+    if (!/lens|glass|frames/.test(n)) { p.sheen = Math.max(p.sheen || 0, 0.3); p.sheenColor = new THREE.Color(0xffb8b8); p.clearcoat = Math.max(p.clearcoat || 0, 0.12); p.clearcoatRoughness = 0.3; }
+    return false;
+  }
+  return false;
+}
+
+function upgradeMaterial(m, meshName, heroId = null) {
   const name = ((m.name || '') + ' ' + (meshName || '')).toLowerCase();
   const p = new THREE.MeshPhysicalMaterial();
   for (const k of ['color', 'map', 'normalMap', 'normalScale', 'roughness', 'roughnessMap', 'metalness', 'metalnessMap', 'aoMap', 'aoMapIntensity', 'emissive', 'emissiveMap', 'emissiveIntensity', 'alphaMap', 'transparent', 'opacity', 'alphaTest', 'side']) {
@@ -184,6 +227,7 @@ function upgradeMaterial(m, meshName) {
   if (m.userData && m.userData.roughnessMap) { p.roughnessMap = m.userData.roughnessMap; p.roughness = 1; }
   if (m.userData && m.userData.metalnessMap) { p.metalnessMap = m.userData.metalnessMap; p.metalness = 1; }
   if (m.userData && m.userData.hasBaseMap) p.color.set(0xffffff);
+  if (heroId && heroRecipe(heroId, p)) return p;
   if (!p.normalMap) { p.normalMap = microNormal(); p.normalScale.set(0.35, 0.35); }
   if (pal) return p;
   const isSkin = /skin|face|head|body|flesh|arm|hand|neck/.test(name) && !/suit|armor|armour|metal|cloth|costume|mask|helmet/.test(name);
@@ -261,7 +305,7 @@ class ModelRig extends Rig {
       if (!o.isMesh) return;
       o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
       const mats = Array.isArray(o.material) ? o.material : [o.material];
-      const up = mats.map((m) => { const n = upgradeMaterial(m, o.name); if (alt) n.color.offsetHSL(0.5, -0.15, -0.1); return n; });
+      const up = mats.map((m) => { const n = upgradeMaterial(m, o.name, hero.id); if (alt) n.color.offsetHSL(0.5, -0.15, -0.1); return n; });
       o.material = Array.isArray(o.material) ? up : up[0];
     });
     // animations: embedded clips plus shared Mixamo clips, all made in-place
@@ -279,7 +323,13 @@ class ModelRig extends Rig {
       const drv = makeDriver();
       root.add(drv.root);
       for (const j of JOINTS) drv.J[j].rotation.set(0, 0, 0);
-      drv.J.lSh.rotation.z = Math.PI / 2; drv.J.rSh.rotation.z = -Math.PI / 2; // match the model's T-pose
+      const calib = gltf.calib;
+      if (calib) {
+        // match the mesh's own rest pose (measured by the auto-rigger)
+        const down = new THREE.Vector3(0, -1, 0);
+        drv.J.lSh.quaternion.setFromUnitVectors(down, calib.lArm); drv.J.rSh.quaternion.setFromUnitVectors(down, calib.rArm);
+        drv.J.lHip.quaternion.setFromUnitVectors(down, calib.lLeg); drv.J.rHip.quaternion.setFromUnitVectors(down, calib.rLeg);
+      } else { drv.J.lSh.rotation.z = Math.PI / 2; drv.J.rSh.rotation.z = -Math.PI / 2; } // the model's T-pose
       root.updateMatrixWorld(true);
       const cal = pairs.map(([dj, mb]) => ({ drv: drv.J[dj], mb, rdInv: drv.J[dj].getWorldQuaternion(new THREE.Quaternion()).invert(), rm: mb.getWorldQuaternion(new THREE.Quaternion()) }));
       const mRest = root.worldToLocal(hips.getWorldPosition(new THREE.Vector3()));
@@ -370,17 +420,61 @@ function cloneSkinned(source) {
 }
 
 const parsed = new Map(); // heroId → parsed gltf (never added to a scene directly)
+// compact indexed mesh written by tools/decimate_stl.py
+function parseMKM(buf) {
+  const dv = new DataView(buf);
+  const nv = dv.getUint32(4, true), nt = dv.getUint32(8, true);
+  const pos = new Float32Array(buf.slice(12, 12 + nv * 12));
+  const idx = new Uint32Array(buf.slice(12 + nv * 12, 12 + nv * 12 + nt * 12));
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  g.computeVertexNormals();
+  const mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ name: 'skin' }));
+  const scene = new THREE.Group(); scene.add(mesh);
+  return { scene, animations: [] };
+}
+
 export async function prepareParsed() {
   for (const [id, buf] of buffers) {
-    try { parsed.set(id, /\.fbx$/i.test(urls.get(id) || '') ? await parseFBX(buf, urls.get(id)) : await parse(buf.slice(0))); }
-    catch (e) { report.errors.push(id + ': ' + e.message); buffers.delete(id); }
+    try {
+      const url = urls.get(id) || '', o = opts.get(id) || {};
+      let g = /\.fbx$/i.test(url) ? await parseFBX(buf, url, o.textures) : /\.mkm$/i.test(url) ? parseMKM(buf) : await parse(buf.slice(0));
+      let hasBones = false; g.scene.traverse((n) => { if (n.isBone) hasBones = true; });
+      if (o.autorig || !hasBones) {
+        const r = autoRig(g.scene, { height: HEIGHTS[id] || 1.85, upAxis: o.upAxis || 'y', flip: !!o.flip, turn: o.turn || 0, weldedArms: !!o.weldedArms });
+        if (!r) throw new Error('no meshes to rig');
+        g = r;
+        report.models[id] += ' (auto-rigged)';
+      }
+      if (id === 'hulk') hulkMaterials(g);
+      parsed.set(id, g);
+    } catch (e) { report.errors.push(id + ': ' + e.message); buffers.delete(id); }
   }
+}
+
+// Hulk sculpt has no materials or UVs: split skin and torn pants by bone, add box-projected detail
+function hulkMaterials(g) {
+  const H = g.height || 2.35;
+  g.scene.traverse((m) => {
+    if (!m.isSkinnedMesh) return;
+    const geo = m.geometry;
+    boxUVs(geo, 7);
+    const si = geo.attributes.skinIndex, pos = geo.attributes.position;
+    const bones = m.skeleton.bones.map((b) => b.name);
+    const isPants = (i) => { const b = bones[si.getX(i)] || ''; const y = pos.getY(i); return (/UpLeg/.test(b) && y > 0.27 * H + 0.012 * H * Math.sin(pos.getX(i) * 60)) || (/Hips/.test(b) && y < 0.56 * H); };
+    const idx = geo.index.array, pants = [], skin = [];
+    for (let t = 0; t < idx.length; t += 3) { const n = isPants(idx[t]) + isPants(idx[t + 1]) + isPants(idx[t + 2]); (n >= 2 ? pants : skin).push(idx[t], idx[t + 1], idx[t + 2]); }
+    geo.setIndex([...skin, ...pants]);
+    geo.clearGroups(); geo.addGroup(0, skin.length, 0); geo.addGroup(skin.length, pants.length, 1);
+    m.material = [new THREE.MeshStandardMaterial({ name: 'hulk_skin' }), new THREE.MeshStandardMaterial({ name: 'hulk_pants' })];
+  });
 }
 
 export function buildModelRig(hero, alt) {
   const gltf = parsed.get(hero.id);
   if (!gltf) return null;
-  const rig = new ModelRig({ scene: cloneSkinned(gltf.scene), animations: gltf.animations }, hero, alt);
+  const rig = new ModelRig({ scene: cloneSkinned(gltf.scene), animations: gltf.animations, calib: gltf.calib }, hero, alt);
   if (!rig.hasAnims && !rig.retarget) { report.errors.push(hero.id + ': model has no animations or Mixamo skeleton, using the built-in hero instead'); parsed.delete(hero.id); return null; }
   return rig;
 }
