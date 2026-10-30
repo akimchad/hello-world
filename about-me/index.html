@@ -9,102 +9,28 @@
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     color: #fff;
-    background: #0b0f1d url("invincible-4k.jpg") center / cover fixed no-repeat;
-    overflow-x: hidden;
+    background: #1a1020 url("background.png") center / cover fixed no-repeat;
   }
   body::before {
     content: ""; position: fixed; inset: 0; z-index: -1;
-    background: linear-gradient(270deg, rgba(0,0,0,.8) 0%, rgba(0,0,0,.4) 45%, rgba(0,0,0,0) 100%);
+    background: linear-gradient(90deg, rgba(0,0,0,.7) 0%, rgba(0,0,0,.3) 50%, rgba(0,0,0,0) 100%);
   }
 
   main {
     max-width: 480px;
-    margin: 8vh 6vw 8vh auto;
+    margin: 8vh 0 8vh 6vw;
     padding: 32px;
-    background: rgba(0, 0, 0, .55);
+    background: rgba(0, 0, 0, .5);
     border-radius: 16px;
   }
   h1 { font-size: 34px; font-weight: 700; }
-  .sub { margin-top: 4px; color: #bbb; }
+  .sub { margin-top: 4px; color: #ccc; }
   h2 { margin: 26px 0 8px; font-size: 18px; font-weight: 600; }
   ul { padding-left: 20px; }
-  li { margin: 5px 0; line-height: 1.5; color: #e6e6e6; }
-  .hint { margin-top: 28px; font-size: 13px; color: #999; }
-
-  /* clickable words look like normal text */
-  .fx { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
-  .fx:focus { outline: none; }
-
-  /* effects layer */
-  #fx { position: fixed; inset: 0; pointer-events: none; z-index: 50; overflow: hidden; }
-  .p { position: absolute; top: 0; will-change: transform; }
-  @keyframes rise { from { transform: translateY(105vh) rotate(0); } to { transform: translateY(-20vh) rotate(40deg); } }
-  @keyframes fall { from { transform: translateY(-15vh) rotate(0); } to { transform: translateY(110vh) rotate(360deg); } }
-  @keyframes fly  { from { transform: translate(-15vw, 100vh); } to { transform: translate(110vw, -25vh); } }
-  @keyframes drive { from { transform: translateX(110vw); } to { transform: translateX(-30vw); } }
-  .bubble { border-radius: 50%; border: 2px solid rgba(255,255,255,.8); background: rgba(120,200,255,.18); }
-
-  .pop {
-    position: fixed; left: 50%; top: 50%;
-    transform: translate(-50%, -50%);
-    text-align: center; z-index: 60; pointer-events: none;
-    animation: pop .4s cubic-bezier(.2, 1.6, .4, 1) both;
-  }
-  .pop.out { animation: popout .3s ease-in both; }
-  @keyframes pop { from { transform: translate(-50%,-50%) scale(.2); opacity: 0; } to { transform: translate(-50%,-50%) scale(1); opacity: 1; } }
-  @keyframes popout { to { transform: translate(-50%,-50%) scale(.6); opacity: 0; } }
-  .big-emoji { font-size: clamp(110px, 22vw, 200px); filter: drop-shadow(0 10px 30px rgba(0,0,0,.6)); }
-  .caption { font-size: clamp(28px, 5vw, 44px); font-weight: 700; text-shadow: 0 2px 12px #000; }
-
-  /* Kazakhstan flag */
-  .kz {
-    width: min(78vw, 420px); aspect-ratio: 2 / 1; border-radius: 8px;
-    background: #00afca; position: relative; overflow: hidden;
-    box-shadow: 0 20px 60px rgba(0,0,0,.6); margin: 0 auto 14px;
-  }
-  .kz .sun {
-    position: absolute; left: 50%; top: 38%; width: 34%; aspect-ratio: 1;
-    transform: translate(-50%, -50%); border-radius: 50%;
-    background: radial-gradient(circle, #fec50c 0 38%, transparent 39%),
-                repeating-conic-gradient(#fec50c 0 6deg, transparent 6deg 11.25deg);
-    animation: spin 8s linear infinite;
-  }
-  @keyframes spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
-  .kz .eagle { position: absolute; left: 50%; bottom: 6%; transform: translateX(-50%); font-size: clamp(34px, 8vw, 60px); }
-  .kz .ornament {
-    position: absolute; left: 4%; top: 0; bottom: 0; width: 7%;
-    background: repeating-linear-gradient(#fec50c 0 10px, transparent 10px 18px);
-  }
-
-  .fight {
-    font-family: Impact, "Arial Black", sans-serif;
-    font-size: clamp(90px, 20vw, 220px); letter-spacing: 4px;
-    color: #ff2a2a; -webkit-text-stroke: 3px #000;
-    text-shadow: 0 0 40px rgba(255,60,0,.8);
-  }
-
-  /* snake jumpscare */
-  #scare {
-    position: fixed; inset: 0; z-index: 100;
-    display: none; background: #000; overflow: hidden; cursor: pointer;
-  }
-  #scare.on { display: block; }
-  #scare img {
-    width: 100%; height: 100%; object-fit: cover; object-position: center 45%;
-    animation: lunge .16s cubic-bezier(.3, 1.4, .4, 1) both, shake .05s .16s 20 alternate;
-  }
-  #scare::after {
-    content: ""; position: absolute; inset: 0; background: #f00; mix-blend-mode: multiply;
-    animation: flash .1s 4 alternate both;
-  }
-  @keyframes lunge { from { transform: scale(.15); filter: blur(6px); } to { transform: scale(1); filter: blur(0); } }
-  @keyframes shake { from { translate: -18px 8px; } to { translate: 18px -8px; } }
-  @keyframes flash { from { opacity: 0; } to { opacity: .5; } }
-
-  .shake { animation: shake .06s 10 alternate; }
+  li { margin: 5px 0; line-height: 1.5; color: #eee; }
 
   @media (max-width: 720px) {
-    body::before { background: rgba(0,0,0,.55); }
+    body::before { background: rgba(0,0,0,.45); }
     main { margin: 16px; padding: 24px 20px; }
   }
 </style>
@@ -116,236 +42,38 @@
 
   <h2>About me</h2>
   <ul>
-    <li>Born in <button class="fx" data-fx="kazakhstan">Kazakhstan</button></li>
-    <li>Lived in <button class="fx" data-fx="newyork">New York</button>, now live in <button class="fx" data-fx="california">California</button></li>
+    <li>Born in Kazakhstan</li>
+    <li>Lived in New York, now live in California</li>
   </ul>
 
   <h2>What I've done</h2>
   <ul>
-    <li>Intern at <button class="fx" data-fx="twolabs">Two Labs</button> (YC startup)</li>
-    <li><button class="fx" data-fx="trophy">1st place</button> for presentation at Vibecon, my first hackathon (hosted by Emergent)</li>
-    <li>Made <button class="fx" data-fx="fight">Marvel Kombat</button>, a Mortal Kombat–style game with Marvel heroes</li>
+    <li>Intern at Two Labs (YC startup)</li>
+    <li>1st place for presentation at Vibecon, my first hackathon (hosted by Emergent)</li>
+    <li>Made Marvel Kombat, a Mortal Kombat–style game with Marvel heroes</li>
   </ul>
 
   <h2>Swimming</h2>
   <ul>
     <li>Swam for a club and my high school team in New York</li>
-    <li>Now on the Las Lomas <button class="fx" data-fx="swim">swim team</button></li>
+    <li>Now on the Las Lomas swim team</li>
   </ul>
 
   <h2>Music</h2>
   <ul>
-    <li>I play the <button class="fx" data-fx="piano">piano</button></li>
+    <li>I play the piano</li>
   </ul>
 
   <h2>Things I like</h2>
   <ul>
-    <li>Watching <button class="fx" data-fx="movies">movies</button></li>
-    <li>Listening to <button class="fx" data-fx="music">music</button></li>
+    <li>Watching movies</li>
+    <li>Listening to music</li>
   </ul>
 
   <h2>Fun fact</h2>
   <ul>
-    <li>I'm scared of <button class="fx" data-fx="snake">snakes</button></li>
+    <li>I'm scared of snakes</li>
   </ul>
-
-  <p class="hint">Try clicking some of the words 👀<br>Snake photo: Tad Arensmeier, CC BY-SA 3.0</p>
 </main>
-
-<div id="fx"></div>
-
-<div id="scare" aria-hidden="true"><img src="snake.jpg" alt=""></div>
-
-<script>
-  // ---------- sound (all synthesized, no files) ----------
-  let ac;
-  const A = () => (ac ||= new (window.AudioContext || window.webkitAudioContext)());
-
-  function tone(freq, at = 0, dur = .3, type = "sine", vol = .2, freqEnd) {
-    const a = A(), t = a.currentTime + at;
-    const o = a.createOscillator(), g = a.createGain();
-    o.type = type;
-    o.frequency.setValueAtTime(freq, t);
-    if (freqEnd) o.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
-    g.gain.setValueAtTime(.0001, t);
-    g.gain.exponentialRampToValueAtTime(vol, t + .01);
-    g.gain.exponentialRampToValueAtTime(.0001, t + dur);
-    o.connect(g).connect(a.destination);
-    o.start(t); o.stop(t + dur + .05);
-  }
-
-  function noise(at = 0, dur = .5, { type = "bandpass", f = 1000, fEnd, q = 1, vol = .3, hold = 0 } = {}) {
-    const a = A(), t = a.currentTime + at;
-    const buf = a.createBuffer(1, a.sampleRate * dur, a.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    const src = a.createBufferSource(), fil = a.createBiquadFilter(), g = a.createGain();
-    src.buffer = buf;
-    fil.type = type; fil.Q.value = q;
-    fil.frequency.setValueAtTime(f, t);
-    if (fEnd) fil.frequency.exponentialRampToValueAtTime(fEnd, t + dur);
-    g.gain.setValueAtTime(.0001, t);
-    g.gain.exponentialRampToValueAtTime(vol, t + .015);
-    g.gain.setValueAtTime(vol, t + dur * hold);
-    g.gain.exponentialRampToValueAtTime(.0001, t + dur);
-    src.connect(fil).connect(g).connect(a.destination);
-    src.start(t);
-  }
-
-  const pianoNote = (f, at, dur = .5) => { tone(f, at, dur, "triangle", .22); tone(f * 2, at, dur * .6, "sine", .05); };
-
-  // ---------- visuals ----------
-  const layer = document.getElementById("fx");
-  const rand = (a, b) => a + Math.random() * (b - a);
-  const pick = arr => arr[Math.floor(Math.random() * arr.length)];
-
-  function particles(chars, { n = 16, anim = "rise", min = 28, max = 64, dur = [2.2, 3.6] } = {}) {
-    for (let i = 0; i < n; i++) {
-      const s = document.createElement("span");
-      s.className = "p";
-      s.textContent = pick(chars);
-      s.style.left = rand(0, 95) + "vw";
-      s.style.fontSize = rand(min, max) + "px";
-      s.style.animation = `${anim} ${rand(...dur)}s ${rand(0, .6)}s ease-in both`;
-      s.addEventListener("animationend", () => s.remove());
-      layer.appendChild(s);
-    }
-  }
-
-  function bubbles(n = 26) {
-    for (let i = 0; i < n; i++) {
-      const s = document.createElement("span"), size = rand(12, 46);
-      s.className = "p bubble";
-      Object.assign(s.style, { left: rand(0, 96) + "vw", width: size + "px", height: size + "px",
-        animation: `rise ${rand(1.8, 3.2)}s ${rand(0, .7)}s ease-out both` });
-      s.addEventListener("animationend", () => s.remove());
-      layer.appendChild(s);
-    }
-  }
-
-  function confetti(n = 90) {
-    const colors = ["#ffd60a", "#3fa9ff", "#ff4d6d", "#52e08a", "#ffffff", "#b06cff"];
-    for (let i = 0; i < n; i++) {
-      const s = document.createElement("span");
-      s.className = "p";
-      Object.assign(s.style, { left: rand(0, 100) + "vw", width: rand(6, 12) + "px", height: rand(10, 18) + "px",
-        background: pick(colors), animation: `fall ${rand(2, 3.6)}s ${rand(0, .5)}s linear both` });
-      s.addEventListener("animationend", () => s.remove());
-      layer.appendChild(s);
-    }
-  }
-
-  function traveler(char, anim, dur, size = 110) {
-    const s = document.createElement("span");
-    s.className = "p";
-    s.textContent = char;
-    Object.assign(s.style, { fontSize: size + "px", top: anim === "drive" ? "68vh" : "0",
-      animation: `${anim} ${dur}s ease-in-out both` });
-    s.addEventListener("animationend", () => s.remove());
-    layer.appendChild(s);
-  }
-
-  function pop(html, ms = 1600) {
-    const d = document.createElement("div");
-    d.className = "pop";
-    d.innerHTML = html;
-    document.body.appendChild(d);
-    setTimeout(() => { d.classList.add("out"); setTimeout(() => d.remove(), 300); }, ms);
-  }
-
-  function shakePage() {
-    const m = document.querySelector("main");
-    m.classList.remove("shake"); void m.offsetWidth; m.classList.add("shake");
-  }
-
-  // ---------- one effect per clickable word ----------
-  const FX = {
-    snake() {
-      const s = document.getElementById("scare");
-      s.classList.remove("on"); void s.offsetWidth; s.classList.add("on");
-      noise(0, 1.8, { type: "highpass", f: 3500, q: .7, vol: 1, hold: .7 });         // hiss
-      tone(70, 0, .8, "sine", .9, 30);                                                 // boom
-      [233, 247, 349, 370].forEach(f => tone(f, 0, 1.2, "sawtooth", .14, f * .85));   // scary stab
-      clearTimeout(FX._t);
-      FX._t = setTimeout(() => s.classList.remove("on"), 2000);
-    },
-
-    kazakhstan() {
-      pop(`<div class="kz"><div class="ornament"></div><div class="sun"></div><div class="eagle">🦅</div></div>
-           <div class="caption">Сәлем! 🇰🇿</div>`, 2200);
-      [523, 659, 784, 1047].forEach((f, i) => tone(f, i * .1, .6, "triangle", .15));
-    },
-
-    newyork() {
-      pop(`<div class="big-emoji">🗽</div>`);
-      traveler("🚕", "drive", 2.4);
-      [0, .28].forEach(t => { tone(415, t, .22, "square", .08); tone(523, t, .22, "square", .08); });
-    },
-
-    california() {
-      pop(`<div class="big-emoji">🌴</div>`);
-      particles(["🌴", "☀️", "🏄", "🌊", "😎"], { n: 14 });
-      noise(0, 1.4, { type: "lowpass", f: 400, fEnd: 2500, vol: .25, hold: .3 });      // wave
-    },
-
-    swim() {
-      bubbles();
-      particles(["🌊", "🏊", "💧"], { n: 10 });
-      noise(0, .6, { type: "bandpass", f: 900, fEnd: 300, q: .8, vol: .6 });          // splash
-      for (let i = 0; i < 8; i++) tone(rand(500, 1200), .3 + i * .12, .08, "sine", .08, rand(1300, 2000)); // bloops
-    },
-
-    piano() {
-      // opening of "Für Elise"
-      const E5 = 659.25, Ds5 = 622.25, B4 = 493.88, D5 = 587.33, C5 = 523.25, A4 = 440;
-      [E5, Ds5, E5, Ds5, E5, B4, D5, C5, A4].forEach((f, i) => pianoNote(f, i * .2, i === 8 ? 1.2 : .45));
-      pop(`<div class="big-emoji">🎹</div>`, 1900);
-      particles(["🎵", "🎶", "🎼"], { n: 14 });
-    },
-
-    music() {
-      const chord = [261.6, 329.6, 392, 523.3];
-      for (let r = 0; r < 2; r++) chord.forEach((f, i) => tone(f * (r ? 1.335 : 1), r * .5 + i * .08, .4, "triangle", .13));
-      pop(`<div class="big-emoji">🎧</div>`, 1400);
-      particles(["🎵", "🎶", "🎧", "🎤"], { n: 16 });
-    },
-
-    movies() {
-      noise(0, .08, { type: "highpass", f: 2000, vol: .8 });                           // clapperboard
-      pop(`<div class="big-emoji">🎬</div>`, 1500);
-      particles(["🍿", "🍿", "🍿", "🎥"], { n: 22, anim: "fall" });
-    },
-
-    twolabs() {
-      traveler("🚀", "fly", 1.6, 120);
-      noise(0, 1.6, { type: "bandpass", f: 300, fEnd: 3000, q: 1.2, vol: .45, hold: .5 }); // whoosh
-    },
-
-    trophy() {
-      confetti();
-      pop(`<div class="big-emoji">🏆</div>`, 2200);
-      [[392, 0], [523, .15], [659, .3], [784, .45], [659, .65], [784, .8]].forEach(([f, t]) =>
-        tone(f, t, t > .7 ? .9 : .2, "sawtooth", .09));
-    },
-
-    fight() {
-      pop(`<div class="fight">FIGHT!</div>`, 1300);
-      shakePage();
-      noise(0, .25, { type: "lowpass", f: 1200, vol: .9 });                            // punch
-      tone(160, 0, .35, "sine", .8, 40);
-      if ("speechSynthesis" in window) {
-        const u = new SpeechSynthesisUtterance("Fight!");
-        u.pitch = .1; u.rate = .7; u.volume = 1;
-        speechSynthesis.cancel(); speechSynthesis.speak(u);
-      }
-    },
-  };
-
-  document.addEventListener("click", e => {
-    const b = e.target.closest(".fx");
-    if (b && FX[b.dataset.fx]) FX[b.dataset.fx]();
-  });
-  document.getElementById("scare").addEventListener("click", e => e.currentTarget.classList.remove("on"));
-</script>
 </body>
 </html>
