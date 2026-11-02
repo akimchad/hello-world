@@ -29,7 +29,7 @@ That opens http://localhost:8000 in your browser. ES modules don't load from `fi
 
 `Esc` pauses. You can rebind every key under **Controls**, and your bindings are saved in the browser.
 
-**PlayStation controller** (or any controller with the standard layout): controller 1 plays as Player 1 and controller 2 as Player 2. Connect it before or after loading the page, then press a button.
+**PlayStation controller** (or any controller with the standard layout): controller 1 plays as Player 1 and controller 2 as Player 2. Connect it before or after loading the page, then press a button. Big impacts rumble the controller in browsers that support it (Chrome, Edge).
 
 | Action | Button |
 |--------|--------|
@@ -60,13 +60,13 @@ That opens http://localhost:8000 in your browser. ES modules don't load from `fi
 | Spider-Man | Web Shot: pins the foe in place, then slows them | Web-Slinging Takedown: swings around the foe on web lines, then a dive-kick slam | Double jump |
 | Iron Man | Repulsor Blast: fast projectile | Unibeam: full-screen beam | Hover (hold Jump while falling) |
 | Thor | Lightning Strike: bolt from the sky | God of Thunder: lightning storm | Hammer heavy is an overhead |
-| Hulk | Ground Breaker: local shockwave that staggers and slows | Hulk Smash: leap, haymakers, then a slam whose shockwave crosses the arena | Super armor on heavies, high HP |
-| Captain America | Shield Throw: returns like a boomerang | Avengers Assemble: shield rush combo | Shield block takes almost no chip |
+| Hulk | Ground Breaker: local shockwave that staggers and slows | World-Breaker Thunderclap: a roar and an unstoppable grab, a slam into the floor behind him, three ankle-grab smashes, a throw across the arena, then a leaping Thunderclap that cracks the foe's health bar | Super armor on heavies, high HP |
+| Captain America | Shield Throw: returns like a boomerang | Star-Spangled Blitz: a bullet-dash shield rush, then a floor-ricochet shield bounce, spinning back kick, edge chop and rising smash, finished by a crater-making shield ground pound | Driving shield-slam heavy that lunges forward; shield block takes almost no chip |
 | Gamora | Godslayer Dash: dash-through slash | Blade Fury: teleporting slash flurry | Longest light attacks |
 | Doctor Doom | Mystic Bolt: crackling green sorcery blast | Science & Sorcery: binds the foe in green lightning and detonates | Force field: half chip damage when blocking |
 | Sentry | Golden Energy Blast: concentrated golden projectile | The Void — Shadow Erasure: the arena dims, shadow spreads across the floor and the foe is turned to shadow, dissolved and returned | Triple jump (flight) |
 | Groot | Root Snare: roots race along the floor and bind the foe | I Am Groot — Ancient Forest: grows giant, roots erupt around the foe, a long-reach strike, then a root shockwave | Branch arms reach furthest; regrows to half health out of combat; most HP |
-| Venom | Symbiote Lash: medium-range tendril strike | Symbiote Overdrive: swells into a monster for claws and tendril sweeps, then a slam | Heaviest hits of the fast fighters |
+| Venom | Symbiote Lash: medium-range tendril strike | We Are Venom: tendrils seize the foe by the throat and slam them down, a bite, then a symbiote greatsword driven straight down | Heaviest hits of the fast fighters |
 | Deadpool | Quickdraw: two quick pistol shots | Merc with a Mouth: katana and kick flurry, a word to the audience, then a finisher | Fastest attacks; healing factor to half health out of combat |
 
 Normal hit is Light, stronger hit is Heavy. Every ultimate needs a full meter, empties it, can be blocked (chip damage only) and avoided, and hands control back when it ends.
@@ -95,6 +95,8 @@ The game runs fully without these files. If you add them, they're picked up auto
 - **Rigged models** work whatever the skeleton naming: Mixamo, 3ds Max Biped (`Bip01 L UpperArm`), Unreal/Fortnite (`upperarm_l`, `spine_03`) or Rigify. The game's own pose system is retargeted onto the bones, so every move, hit reaction and K.O. animates. The rest pose (T-pose, A-pose or relaxed) is measured from the bones.
 - On load each model is turned to face forward, scaled to the hero's height (this also sets the hurtbox and attack reach), centred, and placed with its feet on the floor.
 - Load-time fixes:
+  - Old spec-gloss materials (`KHR_materials_pbrSpecularGlossiness`, common in game rips) keep their textures.
+  - `"grip": "BoneName"` puts a weapon that is skinned to its own floating bone into the right hand (Gamora's sword uses `Melee_TwoHanded_Handle`).
   - Skins whose bind data is in another space than the bones are re-bound.
   - Unskinned parts (belts, clasps) are attached to the nearest bone.
   - Bone chains outside the body (capes hung off the scene root) are hung on the body.

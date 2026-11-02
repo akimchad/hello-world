@@ -100,16 +100,47 @@ export class Effects {
     }
   }
 
-  hitSpark(pos, color, power = 1, blocked = false) {
+  // `dir` (optional) is the direction the blow travels (attacker -> victim, x/y). With it the burst is
+  // shaped by the attack: a forward cone, a short back-splash toward the attacker and a streak that
+  // lines up with the strike; without it the original omnidirectional burst is used.
+  hitSpark(pos, color, power = 1, blocked = false, dir = null) {
     if (blocked) {
       this.emit(pos, { count: 14, color: 0x9fd8ff, color2: 0xffffff, speed: 7, life: 0.22, size: 0.16, drag: 4 });
       this.ring(pos, 0x8fd0ff, 0.9, 0.18, 'face');
+      // guard sparks spray back toward the attacker, hugging the shield
+      if (dir) this.emit(pos, { count: 8, color: 0xffffff, color2: 0x9fd8ff, dir: new THREE.Vector3(-dir.x, 0.35, 0.1), spread: 0.7, speed: 8, life: 0.2, size: 0.14, drag: 5 });
       return;
     }
-    this.emit(pos, { count: Math.round(14 + 18 * power), color: 0xffffff, color2: color, speed: 9 * (0.7 + power * 0.4), life: 0.3, size: 0.2 + 0.08 * power, drag: 4, gravity: -6 });
+    if (!dir) {
+      this.emit(pos, { count: Math.round(14 + 18 * power), color: 0xffffff, color2: color, speed: 9 * (0.7 + power * 0.4), life: 0.3, size: 0.2 + 0.08 * power, drag: 4, gravity: -6 });
+    } else {
+      const fwd = new THREE.Vector3(dir.x, dir.y, 0.1);
+      // forward cone (the follow-through) - tighter and faster for heavier hits
+      this.emit(pos, { count: Math.round(12 + 16 * power), color: 0xffffff, color2: color, dir: fwd, spread: 0.55 / (0.6 + power * 0.5), speed: 12 * (0.7 + power * 0.4), life: 0.3, size: 0.2 + 0.08 * power, drag: 4, gravity: -6 });
+      // back-splash toward the attacker
+      this.emit(pos, { count: Math.round(5 + 5 * power), color, color2: 0xffffff, dir: new THREE.Vector3(-dir.x, Math.max(0.2, -dir.y * 0.5 + 0.3), 0.2), spread: 1.3, speed: 5, life: 0.22, size: 0.16, drag: 5, gravity: -4 });
+      this.streak(pos, fwd, color, 0.9 + power * 0.9, 0.12);
+    }
     this.emit(pos, { count: 6, color, speed: 2, life: 0.18, size: 0.9 + power * 0.6, drag: 8 });
     this.ring(pos, color, 0.7 + power * 0.6, 0.2, 'face');
     this.flashLight(pos, color, 6 * power, 0.15);
+  }
+
+  // a thin additive streak along `dir` that shoots out of `pos` and fades: the "impact line" of a strike
+  streak(pos, dir, color, len = 1.2, life = 0.12) {
+    const geo = new THREE.PlaneGeometry(1, 1);
+    const m = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geo, m);
+    const ang = Math.atan2(dir.y, dir.x);
+    mesh.rotation.z = ang;
+    const c = Math.cos(ang), s = Math.sin(ang);
+    this.timed(mesh, life, (o, k) => {
+      const L = len * (0.35 + 0.65 * Math.min(1, k * 3));
+      o.scale.set(L, 0.05 * (1 - k) + 0.01, 1);
+      // the streak's tail stays at the contact point while its tip races outward
+      o.position.set(pos.x + c * L * 0.5, pos.y + s * L * 0.5, pos.z + 0.05);
+      m.opacity = 1 - k;
+    });
   }
 
   dust(pos, n = 10) {

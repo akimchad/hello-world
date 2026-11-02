@@ -48,6 +48,7 @@ export class Fighter {
     this.hitIds = new Set();
     this.combo = 0;
     this.invuln = 0;
+    this.freezeT = 0; this.freezeAmp = 0; // per-fighter hit-stop (see Match.hitstopPair)
     this.flashT = 0; this.flashColor = new THREE.Color(1, 1, 1);
     this.noPush = false;
     this.armor = false;
@@ -67,7 +68,7 @@ export class Fighter {
   resetScript() {
     this.ultT = 0; this.fired = false; this.targetX = undefined; this.hitId = null; this.locked = false; this.lockT = 0;
     this.seqIdx = 0; this.leapt = false; this.slammed = false; this.slamT = 0; this.chargeFx = false; this.beamTick = 0; this.beamHits = 0;
-    this.noPush = false; this.armor = false;
+    this.noPush = false; this.armor = false; this.superArmor = false; this.comboPose = null;
     this.started = false; this.recede = undefined; this.erasing = false; this.returned = false; this.erasedSfx = false; this.engaged = false; this.quipped = false;
   }
 
@@ -100,7 +101,7 @@ export class Fighter {
     this.stateT = 0;
     this.hitId = newHitId();
     this.moveHit = false;
-    this.flicked = false;
+    this.flicked = false; this.lunged = false; this.lungeStop = false;
     this.crouching = !!this.move.crouch;
     this.blocking = false;
     if (this.onGround && !this.move.air) this.vx *= 0.3;
@@ -161,7 +162,7 @@ export class Fighter {
     if (!hit.noFlash) this.flash(0xffffff, 0.1);
     if (this.hp <= 0) {
       this.state = 'ko'; this.stateT = 0;
-      this.vy = Math.max(7, hit.launch || 0); this.vx = dir * 5; this.onGround = false; this.crouching = false;
+      this.vy = Math.max(9, hit.launch || 0); this.vx = dir * 7.5; this.onGround = false; this.crouching = false;
       return;
     }
     if (this.state === 'locked' && hit.keepLock) { this.stateT = 0; return; }
@@ -169,6 +170,7 @@ export class Fighter {
     if (hit.slow) { this.slowT = Math.max(this.slowT, Math.min(hit.slow, 2)); this.slowColor = hit.color ?? 0xffffff; }
     if (hit.root && this.rootImmune <= 0) { this.rootT = Math.min(hit.root, 1.2); this.rootImmune = this.rootT + 2; }
     if (this.armor && hit.kind === 'light' && this.onGround) return; // super armor
+    if (this.superArmor && hit.kind !== 'ult') return; // unstoppable (takes the damage, never flinches)
     const airborne = !this.onGround;
     this.crouching = false; this.blocking = false; this.move = null;
     this.script && this.script.cleanup && this.script.cleanup(this, this.game);
@@ -194,6 +196,12 @@ export class Fighter {
       this.vx = dir * (hit.push || 1.5) / this.hero.weight;
       this.hitLow = hit.height === 'low';
     }
+  }
+
+  // while frozen by hit-stop the simulation is skipped; the struck fighter just vibrates in place
+  freezeVisual() {
+    const a = this.freezeAmp;
+    this.root.position.set(this.x + (a ? (Math.random() - 0.5) * a * 2 : 0), this.y + (a ? (Math.random() - 0.5) * a : 0), 0);
   }
 
   // ---------------------------------------------------------------
@@ -278,6 +286,14 @@ export class Fighter {
           if (r) this.moveHit = r;
         }
         if (m.armor && this.stateT < st + act) this.armor = true; else this.armor = false;
+        // driving moves: weight rocks back in the wind-up, then the body carries forward through the strike
+        if (m.lunge && this.onGround) {
+          if (this.stateT < st * 0.4) this.vx = -this.facing * m.lunge * 0.12;
+          else if (this.stateT < st + act && !this.moveHit) {
+            if (!this.lunged) { this.lunged = true; g.fx.dust(new THREE.Vector3(this.x - this.facing * 0.3, 0.05, 0), 8); }
+            this.vx = this.facing * m.lunge;
+          } else if (this.moveHit === 'hit' && !this.lungeStop) { this.lungeStop = true; this.vx *= 0.15; }
+        }
         // chain cancels on hit / block
         if (this.moveHit && this.stateT > st) {
           if (m.next && c.take('light')) { this.startMove(m.next); break; }
@@ -285,7 +301,7 @@ export class Fighter {
           if (c.peek('ult') && this.ult >= 100 && this.onGround) { c.take('ult'); if (this.startUltimate()) break; }
           if (!m.air && c.take('heavy') && m.kind === 'light') { this.startMove(this.crouching ? 'upper' : 'heavy'); break; }
         }
-        if (this.onGround && !m.air) this.vx *= Math.max(0, 1 - dt * 10);
+        if (this.onGround && !m.air && !(m.lunge && this.stateT < st + act)) this.vx *= Math.max(0, 1 - dt * 10);
         if (this.stateT >= tot) {
           this.move = null; this.armor = false;
           this.state = this.onGround ? 'idle' : 'air';
@@ -382,7 +398,7 @@ export class Fighter {
       this.state = 'down'; this.stateT = 0; this.vx *= 0.4;
       g.audio.play('land', 1.2); g.fx.dust(new THREE.Vector3(this.x, 0.05, 0), 18); g.shake(0.25);
     } else if (this.state === 'ko') {
-      this.vx *= 0.4; g.audio.play('land', 1.3); g.fx.dust(new THREE.Vector3(this.x, 0.05, 0), 24); g.shake(0.4);
+      this.vx *= 0.4; g.audio.play('land', 1.3); g.fx.dust(new THREE.Vector3(this.x, 0.05, 0), 24); g.fx.ring(new THREE.Vector3(this.x, 0.05, 0), 0xffffff, 2.4, 0.4, 'ground'); g.shake(0.4);
     } else if (this.state === 'hit') { this.vx *= 0.5; }
   }
 
@@ -401,7 +417,8 @@ export class Fighter {
         return [map[this.move.name] || 'punch', { duration: this.moveTotal(), token: this.hitId }];
       }
       case 'special': return ['special', { duration: 0.6, token: 'sp' + this.specialCd.toFixed(2) }];
-      case 'ultimate': return ['special', { duration: 0.9 }];
+      // ultimates play their own scripted poses; only full clip sets (no retargeting) borrow 'special'
+      case 'ultimate': return [this.rig.hasAnims ? 'special' : 'ultimate', { duration: 0.9 }];
       case 'blockstun': return ['block', {}];
       case 'hit': return [(!this.onGround || this.stunT > 50) ? 'knockdown' : 'hit', { token: (this.stunT > 50 ? 'kd' : 'h') + this.hitCount }];
       case 'locked': return ['hit', {}];
@@ -491,6 +508,7 @@ export class Fighter {
     }
 
     this.root.position.set(this.x, this.y, 0);
+    if (this.state !== 'locked' && (this.root.rotation.z || this.root.rotation.x)) { this.root.rotation.z = 0; this.root.rotation.x = 0; this.root.rotation.order = 'XYZ'; }
     const targetRot = this.faceCam ? 0 : this.facing * FACE_ANGLE;
     if (this.state === 'hit' || this.state === 'down' || this.state === 'ko' || this.state === 'locked') {
       // keep current orientation while reeling

@@ -19,7 +19,7 @@ export const DEFAULT_BINDINGS = {
   },
 };
 
-const BUFFER = 0.16; // seconds an attack press is remembered while the fighter is busy
+const BUFFER = 0.2; // seconds an attack press is remembered while the fighter is busy (same as the CPU's)
 
 export function keyLabel(code) {
   if (!code) return '—';
@@ -102,6 +102,14 @@ export class Gamepads {
       for (const c of now) if (!prev.has(c)) { this.kb.padDown.add(c); this.kb.onPress && this.kb.onPress(c); }
       for (const c of prev) if (!now.has(c)) this.kb.padDown.delete(c);
       this.prev[i] = now;
+    }
+  }
+  // controller rumble where the browser supports it (Chrome's dual-rumble); ignored elsewhere
+  rumble(strength = 0.5, ms = 200) {
+    const pads = navigator.getGamepads ? [...navigator.getGamepads()].filter((p) => p && p.connected) : [];
+    for (const p of pads) {
+      const a = p.vibrationActuator;
+      if (a && a.playEffect) a.playEffect('dual-rumble', { duration: ms, strongMagnitude: Math.min(1, strength), weakMagnitude: Math.min(1, strength * 0.6) }).catch(() => {});
     }
   }
 }

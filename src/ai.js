@@ -73,7 +73,7 @@ export class CpuInput {
     if (!this.held('down')) this.release('down');
 
     const sp = me.hero.special.id;
-    if (me.ult >= 100 && opp.state !== 'down' && opp.state !== 'ko' && (dist < 3.2 || ['unibeam', 'thunderstorm', 'doomWrath', 'voidErasure', 'ancientForest'].includes(me.hero.ultimate.id)) && Math.random() < 0.6) {
+    if (me.ult >= 100 && opp.state !== 'down' && opp.state !== 'ko' && (dist < 3.2 || ['unibeam', 'thunderstorm', 'doomWrath', 'voidErasure', 'ancientForest', 'freedomStrike'].includes(me.hero.ultimate.id)) && Math.random() < 0.6) {
       this.press('ult'); return;
     }
     if (opp.state === 'down' || opp.state === 'getup') {

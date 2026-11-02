@@ -55,6 +55,21 @@ const LOOP = new Set(['idle', 'walk', 'walkBack', 'crouch', 'block', 'taunt', 'v
 const CLAMP = new Set(['knockdown', 'down', 'ko']);
 
 const loader = new GLTFLoader();
+// KHR_materials_pbrSpecularGlossiness left three.js in r147, but Sketchfab still writes it for
+// old game rips (the MUA Hulk): keep the diffuse texture and colour, read gloss as roughness
+loader.register((parser) => ({
+  name: 'KHR_materials_pbrSpecularGlossiness',
+  extendMaterialParams(index, params) {
+    const ext = (parser.json.materials[index].extensions || {})[this.name];
+    if (!ext) return Promise.resolve();
+    const f = ext.diffuseFactor || [1, 1, 1, 1];
+    params.color = new THREE.Color().setRGB(f[0], f[1], f[2], THREE.LinearSRGBColorSpace);
+    params.opacity = f[3];
+    params.metalness = 0;
+    params.roughness = 1 - 0.6 * (ext.glossinessFactor ?? 1);
+    return ext.diffuseTexture ? parser.assignTexture(params, 'map', ext.diffuseTexture, THREE.SRGBColorSpace) : Promise.resolve();
+  },
+}));
 const buffers = new Map();    // heroId → ArrayBuffer
 const urls = new Map();       // heroId → source url (glb, fbx or mkm)
 const opts = new Map();       // heroId → manifest options
@@ -366,6 +381,11 @@ function heroRecipe(heroId, p, src) {
   const glow = (c, k) => { if (p.emissiveMap) { p.emissive.set(c); p.emissiveIntensity = k; } };
   switch (heroId) {
     case 'hulk': {
+      if (p.map) { // textured MUA Hulk: painted veins and brow; deepen toward emerald, raise the relief
+        p.color.set(0xc4e8cc); skin(0x9cff9c); p.roughness = 0.6;
+        if (p.normalMap) p.normalScale.set(1.2, 1.2);
+        return true;
+      }
       const painted = p.vertexColors; // the sculpt's own paint carries the colour
       if (n === 'hulk_skin') {
         if (!painted) p.color.set(0x2e7d32);
@@ -420,6 +440,14 @@ function heroRecipe(heroId, p, src) {
       else { fromSpec([0.6, 0.3]); p.sheen = 0.45; p.sheenColor = tint(0xb0c8ff); p.sheenRoughness = 0.5; p.clearcoat = 0.18; p.clearcoatRoughness = 0.3; } // blue suit
       glow(0xffe9a0, 1.6);
       return true;
+    case 'groot':
+      if (p.map) { // King Groot's pale timber: darker, wetter bark; moss stays in the texture
+        p.color.set(0xa07c5a); p.roughness = 0.85; p.metalness = 0;
+        p.sheen = 0.1; p.sheenColor = tint(0x9ccf6a); p.sheenRoughness = 0.8;
+        p.normalMap = heroDetail('pores'); p.normalScale.set(0.7, 0.7);
+        return true;
+      }
+      return false;
     case 'spiderman':
       for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap']) if (p[k]) p[k].anisotropy = 8;
       if (p.normalMap && p.normalMap !== microNormal()) p.normalScale.set(1.15, 1.15);
@@ -494,7 +522,7 @@ class ModelRig extends Rig {
     // bones under one naming scheme; FBX nests duplicated bones, the outermost copy drives the rest
     const bones = {};
     let kneeRig = false;
-    model.traverse((o) => { if (o.isBone && /knee/i.test(o.name)) kneeRig = true; });
+    model.traverse((o) => { if (o.isBone && /^(left|right)knee$/.test(canonBone(o.name))) kneeRig = true; }); // not "LeftKneePad"
     model.traverse((o) => {
       if (!o.isBone) return;
       let k = canonBone(o.name);
@@ -528,6 +556,7 @@ class ModelRig extends Rig {
     const c = box2.getCenter(new V());
     model.position.x -= c.x; model.position.z -= c.z; model.position.y -= box2.min.y - (gltf.lift || 0);
     model.updateMatrixWorld(true);
+    if (gltf.grip && B.rHand) gripWeapon(model, B.rHand, B.rEl, gltf.grip, target);
     const lHand = B.lHand || chest, rHand = B.rHand || chest;
     const J = { hips: hips || model, chest: chest || model, lHand, rHand, lFoot: B.lFoot || hips, rFoot: B.rFoot || hips };
     // a proxy at the centre of the head, ~9 cm above the head bone whatever the bone's axes
@@ -612,6 +641,7 @@ class ModelRig extends Rig {
       if (gltf.clipMap && own.length) this.overlay = this.makeOverlay(model, hips, own, gltf.clipMap, new Set(pairs.map(([, b]) => b)));
     }
     if (hero.id === 'sentry') { const aura = new THREE.PointLight(0xffd070, 0, 3, 2); chest.add(aura); this.aura = aura; }
+    if (hero.id === 'groot' && head && B.lSh && B.rSh) this.glowNodes = grootAdorn(this, B, headAnchor, target);
     this.collectFlashMaterials();
     enhanceRig(this);
     this.setAnim('idle');
@@ -786,6 +816,99 @@ class ModelRig extends Rig {
       O.tp.copy(s.b.position); s.b.position.copy(s.p).lerp(O.tp, w);
     }
   }
+}
+
+// a weapon skinned to its own floating bone (Fortnite's Melee_TwoHanded_Handle): move that bone
+// into the right fist in the rest pose, blade out past the thumb, and parent it to the hand so
+// every pose and clip carries the weapon with the grip
+function gripWeapon(model, hand, elbow, gripName, H) {
+  let grip = null;
+  model.traverse((o) => { if (!grip && o.isBone && o.name === gripName) grip = o; });
+  if (!grip || !elbow) { report.errors.push('grip bone not found: ' + gripName); return; }
+  // blade direction now: from the grip bone toward the middle of whatever is skinned to it
+  const gp = grip.getWorldPosition(new V()), box = new THREE.Box3();
+  model.traverse((o) => {
+    if (o.isSkinnedMesh && o.skeleton.bones.includes(grip)) box.expandByObject(o);
+  });
+  if (box.isEmpty()) return;
+  const blade = box.getCenter(new V()).sub(gp).normalize();
+  const hp = hand.getWorldPosition(new V()), arm = hp.clone().sub(elbow.getWorldPosition(new V())).normalize();
+  // rest pose has the palm facing in/down with the thumb forward: the blade leaves the fist
+  // forward and a little up, square to the forearm
+  const want = new V(0, 0.25, 1).addScaledVector(arm, -new V(0, 0.25, 1).dot(arm)).normalize();
+  const q = new Q().setFromUnitVectors(blade, want);
+  grip.quaternion.premultiply(grip.parent.getWorldQuaternion(new Q()).invert().multiply(q).multiply(grip.parent.getWorldQuaternion(new Q())));
+  grip.updateMatrixWorld(true);
+  // grip point: in the palm, a fist-length past the wrist
+  const palm = hp.clone().addScaledVector(arm, 0.075 * H / 1.85);
+  grip.parent.updateWorldMatrix(true, false);
+  grip.position.add(grip.parent.worldToLocal(palm.clone()).sub(grip.parent.worldToLocal(grip.getWorldPosition(new V()))));
+  grip.updateMatrixWorld(true);
+  hand.attach(grip);
+  model.updateMatrixWorld(true);
+}
+
+// Groot: glowing amber fibre nodes across the shoulders and a crown of twisting branches
+// sprouting around the head. Built in the rest pose, then hung on the bones they grow from.
+function grootAdorn(rig, B, headAnchor, H) {
+  rig.root.updateMatrixWorld(true);
+  const P = (o) => o.getWorldPosition(new V());
+  const s = H / 1.85, rnd = (() => { let x = 7; return () => (x = (x * 16807) % 2147483647) / 2147483647; })();
+  const glow = new THREE.MeshStandardMaterial({ color: 0x3a1c04, emissive: 0xffa030, emissiveIntensity: 3.2, roughness: 0.4 });
+  const bark = new THREE.MeshStandardMaterial({ color: 0x3b281a, roughness: 0.9 });
+  const leaf = new THREE.MeshStandardMaterial({ color: 0x4f7a2a, roughness: 0.7, side: THREE.DoubleSide });
+  const nodeGeo = new THREE.IcosahedronGeometry(0.04 * s, 1);
+  // a soft additive halo so the nodes read as glowing through bloom and at fight distance
+  const haloTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'); const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,190,90,1)'); gr.addColorStop(0.35, 'rgba(255,140,40,0.55)'); gr.addColorStop(1, 'rgba(255,120,20,0)'); x.fillStyle = gr; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
+  const haloMat = new THREE.SpriteMaterial({ map: haloTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+  const node = (bone, p, k) => {
+    const m = add(bone, new THREE.Mesh(nodeGeo, glow), p); m.scale.multiplyScalar(k);
+    const h = new THREE.Sprite(haloMat); h.scale.setScalar(0.24 * s * k / m.getWorldScale(new V()).x); m.add(h);
+    nodes.push(m);
+  };
+  const add = (bone, mesh, at) => { mesh.position.copy(at); mesh.castShadow = false; rig.root.add(mesh); mesh.updateMatrixWorld(true); bone.attach(mesh); return mesh; };
+  const nodes = [];
+  // nodes: clusters over each shoulder cap and down the upper arm, a few across the collarbones
+  const chestP = P(B.chest), headP = P(headAnchor);
+  for (const [sh, el] of [[B.lSh, B.lEl], [B.rSh, B.rEl]]) {
+    const a = P(sh), b = el ? P(el) : a.clone().add(new V(0, -0.3 * s, 0));
+    const out = new V(Math.sign(a.x - chestP.x) || 1, 0, 0);
+    for (let i = 0; i < 6; i++) {
+      const t = rnd() * 0.5, p = a.clone().lerp(b, t);
+      p.addScaledVector(out, (0.12 + rnd() * 0.05) * s).add(new V(0, (0.1 - t * 0.12) * s, (0.05 + rnd() * 0.08) * s));
+      node(sh, p, 0.7 + rnd() * 0.6);
+    }
+  }
+  for (let i = 0; i < 5; i++) {
+    const p = chestP.clone().lerp(headP, 0.25).add(new V((rnd() - 0.5) * 0.34 * s, (rnd() - 0.5) * 0.06 * s, 0.16 * s));
+    node(B.chest, p, 0.5 + rnd() * 0.5);
+  }
+  // crown: 9 branches rooted on a ring around the top of the head, curling up and out
+  const top = headP.clone().add(new V(0, 0.05 * s, -0.01 * s));
+  for (let i = 0; i < 9; i++) {
+    const ang = (i / 9) * Math.PI * 2 + rnd() * 0.3;
+    const dir = new V(Math.sin(ang), 0, Math.cos(ang));
+    const base = top.clone().addScaledVector(dir, 0.085 * s);
+    const len = (0.12 + rnd() * 0.1) * s, twist = (rnd() - 0.5) * 1.4;
+    const pts = [0, 0.35, 0.7, 1].map((t) => {
+      const d = dir.clone().applyAxisAngle(new V(0, 1, 0), twist * t);
+      return base.clone().addScaledVector(d, len * t * 0.8).add(new V(0, len * (t * 0.9 - t * t * 0.25), 0));
+    });
+    const curve = new THREE.CatmullRomCurve3(pts.map((p) => p.sub(base)));
+    const tube = new THREE.TubeGeometry(curve, 8, 0.009 * s, 5, false);
+    const pos = tube.attributes.position, tmp = new V();
+    for (let k = 0; k < pos.count; k++) { // taper toward the tip
+      tmp.fromBufferAttribute(pos, k); const u = Math.floor(k / 6) / 8;
+      const c = curve.getPoint(u); tmp.sub(c).multiplyScalar(1 - 0.75 * u).add(c); pos.setXYZ(k, tmp.x, tmp.y, tmp.z);
+    }
+    tube.computeVertexNormals();
+    const br = add(B.head, new THREE.Mesh(tube, bark), base);
+    if (rnd() < 0.7) { // a leaf or two at the tip
+      const lf = new THREE.Mesh(new THREE.PlaneGeometry(0.028 * s, 0.05 * s), leaf);
+      lf.position.copy(curve.getPoint(1)); lf.rotation.set(rnd() * 2, ang, rnd()); br.add(lf);
+    }
+  }
+  return nodes;
 }
 
 // deep-clone a skinned scene and rebind each skeleton to the cloned bones
@@ -973,6 +1096,7 @@ export async function prepareParsed(progress = () => {}) {
       if (id === 'hulk' && /\.mkm$/i.test(url)) hulkMaterials(g); // the unpainted-UV sculpt only
       g.clipMap = o.clips || null;
       g.lift = o.lift || 0;
+      g.grip = o.grip || null;
       parsed.set(id, g);
     } catch (e) { report.errors.push(id + ': ' + e.message); buffers.delete(id); }
     buffers.delete(id); // parsed now; the raw file is no longer needed
@@ -1026,7 +1150,7 @@ function hulkMaterials(g) {
 export function buildModelRig(hero, alt) {
   const gltf = parsed.get(hero.id);
   if (!gltf) return null;
-  const rig = new ModelRig({ scene: cloneSkinned(gltf.scene), animations: gltf.animations, clipMap: gltf.clipMap, lift: gltf.lift }, hero, alt);
+  const rig = new ModelRig({ scene: cloneSkinned(gltf.scene), animations: gltf.animations, clipMap: gltf.clipMap, lift: gltf.lift, grip: gltf.grip }, hero, alt);
   if (!rig.hasAnims && !rig.retarget) { report.errors.push(hero.id + ': model has no animations or recognisable skeleton, using the built-in hero instead'); parsed.delete(hero.id); return null; }
   return rig;
 }

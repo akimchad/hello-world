@@ -62,6 +62,30 @@ export const POSES = {
   wave: P({ spine: [-0.05, 0, 0], head: [0.05, 0, 0.15], lSh: [-0.3, 0, 0.3], lEl: [-1.6, 0, 0], rSh: [-0.2, 0, -2.6], rEl: [-1.1, 0, 0], lHip: [0, 0, 0.12], lKnee: [0.1, 0, 0], rHip: [0, 0, -0.12], rKnee: [0.1, 0, 0] }),
   victory: P({ spine: [-0.1, 0.2, 0], head: [0.15, -0.1, 0], lSh: [-0.25, 0, 0.55], lEl: [-1.9, 0, 0], rSh: [-3.0, 0, -0.15], rEl: [-0.25, 0, 0], lHip: [0, 0, 0.16], lKnee: [0.05, 0, 0], rHip: [0, 0, -0.16], rKnee: [0.05, 0, 0] }),
   taunt: P({ spine: [-0.1, 0, 0], head: [0.1, 0, 0], lSh: [-0.2, 0, 0.45], lEl: [-1.9, 0, 0], rSh: [-0.2, 0, -0.45], rEl: [-1.9, 0, 0], lHip: [0, 0, 0.18], lKnee: [0.05, 0, 0], rHip: [0, 0, -0.18], rKnee: [0.05, 0, 0] }),
+  // shield slam: weight rocks back with the shield cocked, then a driving lunge with the whole body turned in
+  shieldBashW: P({ spine: [-0.1, -0.7, 0], head: [0.05, 0.6, 0], lSh: [-0.7, 0, 0.9], lEl: [-1.7, 0, 0], rSh: [-0.5, 0, -0.5], rEl: [-1.6, 0, 0], lHip: [-0.15, 0, 0.15], lKnee: [0.6, 0, 0], rHip: [0.5, 0, -0.12], rKnee: [0.9, 0, 0], hipY: -0.06 }),
+  shieldBash: P({ spine: [0.5, 0.65, 0], head: [-0.35, -0.45, 0], lSh: [-1.7, 0, -0.1], lEl: [-1.2, 0, 0], rSh: [0.3, 0, -0.5], rEl: [-0.9, 0, 0], lHip: [-1.25, 0, 0.12], lKnee: [1.1, 0, 0], rHip: [0.75, 0, -0.12], rKnee: [0.1, 0, 0], hipY: -0.08 }),
+  // spinning back kick: turned away from the foe, heel driven back at them
+  backKickW: P({ spine: [0.2, 0.3, 0], head: [-0.1, -0.5, 0], ...GUARD, lHip: [-0.1, 0, 0.1], lKnee: [0.3, 0, 0], rHip: [-1.0, 0, -0.1], rKnee: [1.9, 0, 0], bodyY: 1.8 }),
+  backKick: P({ spine: [0.65, 0, 0], head: [-0.5, 0, 0.6], lSh: [-0.6, 0, 0.7], lEl: [-1.2, 0, 0], rSh: [-0.6, 0, -0.7], rEl: [-1.2, 0, 0], lHip: [-0.2, 0, 0.1], lKnee: [0.3, 0, 0], rHip: [1.45, 0, -0.05], rKnee: [0.05, 0, 0], bodyY: 3.0 }),
+  // shield-edge chop: left arm raised high, then cut down across the body
+  chopW: P({ spine: [-0.2, -0.5, 0], head: [0.15, 0.4, 0], lSh: [-2.9, 0, 0.6], lEl: [-1.1, 0, 0], rSh: [-0.6, 0, -0.4], rEl: [-1.6, 0, 0], ...LEGS_STANCE }),
+  chop: P({ spine: [0.55, 0.5, 0], head: [-0.35, -0.3, 0], lSh: [-1.0, 0, -0.45], lEl: [-0.15, 0, 0], rSh: [-0.4, 0, -0.5], rEl: [-1.4, 0, 0], lHip: [-1.0, 0, 0.12], lKnee: [1.0, 0, 0], rHip: [0.55, 0, -0.12], rKnee: [0.2, 0, 0] }),
+  // one-handed seize at head height, lunging in
+  grab: P({ spine: [0.35, 0.35, 0], head: [-0.2, -0.25, 0], lSh: [-0.9, 0, 0.6], lEl: [-1.3, 0, 0], rSh: [-1.75, 0, 0.1], rEl: [-0.3, 0, 0], lHip: [-1.0, 0, 0.12], lKnee: [1.0, 0, 0], rHip: [0.6, 0, -0.12], rKnee: [0.25, 0, 0] }),
+  // both hands overhead, holding something up
+  lift: P({ spine: [-0.3, 0, 0], head: [0.35, 0, 0], lSh: [-3.0, 0, 0.25], lEl: [-0.35, 0, 0], rSh: [-3.0, 0, -0.25], rEl: [-0.35, 0, 0], lHip: [-0.3, 0, 0.25], lKnee: [0.6, 0, 0], rHip: [0.2, 0, -0.25], rKnee: [0.6, 0, 0], hipY: -0.04 }),
+  // the smash, turned to the other side: slamming what's held into the floor behind
+  smashBack: P({ spine: [0.9, 0, 0], head: [-0.6, 0, 0], lSh: [-1.0, 0, -0.1], lEl: [-0.1, 0, 0], rSh: [-1.0, 0, 0.1], rEl: [-0.1, 0, 0], lHip: [-1.3, 0, 0.3], lKnee: [1.8, 0, 0], rHip: [-0.4, 0, -0.3], rKnee: [1.4, 0, 0], bodyY: Math.PI }),
+  // thunderclap: arms flung wide and back, then palms smashed together in front
+  clapW: P({ spine: [-0.35, 0, 0], head: [0.3, 0, 0], lSh: [-1.3, 0, 1.55], lEl: [-0.25, 0, 0], rSh: [-1.3, 0, -1.55], rEl: [-0.25, 0, 0], lHip: [-0.5, 0, 0.2], lKnee: [0.5, 0, 0], rHip: [0.3, 0, -0.2], rKnee: [0.4, 0, 0] }),
+  clap: P({ spine: [0.4, 0, 0], head: [-0.25, 0, 0], lSh: [-1.55, 0, -0.42], lEl: [-0.05, 0, 0], rSh: [-1.55, 0, 0.42], rEl: [-0.05, 0, 0], lHip: [-1.1, 0, 0.2], lKnee: [1.1, 0, 0], rHip: [0.6, 0, -0.2], rKnee: [0.2, 0, 0], hipY: -0.05 }),
+  // crouched over a pinned foe, head driven down to bite, then torn back
+  bite: P({ spine: [0.85, 0, 0], head: [0.1, 0, 0], lSh: [-1.0, 0, 0.35], lEl: [-0.5, 0, 0], rSh: [-1.0, 0, -0.35], rEl: [-0.5, 0, 0], lHip: [-1.4, 0, 0.3], lKnee: [2.0, 0, 0], rHip: [-0.5, 0, -0.3], rKnee: [1.6, 0, 0] }),
+  biteRip: P({ spine: [0.25, 0, 0], head: [0.7, 0, 0], lSh: [-1.1, 0, 0.35], lEl: [-0.5, 0, 0], rSh: [-0.6, 0, -0.8], rEl: [-1.0, 0, 0], lHip: [-1.3, 0, 0.3], lKnee: [1.8, 0, 0], rHip: [-0.4, 0, -0.3], rKnee: [1.4, 0, 0] }),
+  // one arm hoisted high over a pinned foe, then driven straight down
+  swordRaise: P({ spine: [-0.25, -0.2, 0], head: [0.3, 0.1, 0], lSh: [-1.1, 0, 0.35], lEl: [-0.4, 0, 0], rSh: [-3.1, 0, -0.1], rEl: [-0.15, 0, 0], lHip: [-0.7, 0, 0.25], lKnee: [0.9, 0, 0], rHip: [0.3, 0, -0.25], rKnee: [0.6, 0, 0] }),
+  stab: P({ spine: [0.95, 0.15, 0], head: [-0.5, 0, 0], lSh: [-0.9, 0, 0.4], lEl: [-0.5, 0, 0], rSh: [-1.05, 0, 0.15], rEl: [-0.05, 0, 0], lHip: [-1.4, 0, 0.3], lKnee: [1.9, 0, 0], rHip: [-0.4, 0, -0.3], rKnee: [1.5, 0, 0], hipY: -0.05 }),
 };
 
 export function lerpPose(a, b, t, out = null) {

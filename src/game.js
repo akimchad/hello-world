@@ -8,12 +8,16 @@ import { POSES } from './rig.js';
 import { setRim } from './enhance.js';
 
 const DAMAGE_SCALE = 0.85; // global pacing knob: lower = longer rounds
+const BASE_FOV = 34;
+const COMBO_SCALE =[1, 1, 0.9, 0.8, 0.7, 0.6, 0.5]; // damage multiplier by hit number within a combo
+const ATTACKER_FREEZE = 0.55; // attacker's hit-stop as a fraction of the defender's
 const PRAISE =['', '', 'NICE', 'GREAT', 'SUPERB', 'BRUTAL', 'OUTSTANDING', 'LEGENDARY'];
 
 function overlap(a, b) { return a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0; }
 
 export class Match {
-  constructor({ heroes, stageId, cpu, settings, audio, inputs, hud, onEnd, renderer, cine }) {
+  constructor({ heroes, stageId, cpu, settings, audio, inputs, hud, onEnd, renderer, cine, rumble }) {
+    this.rumbleFn = rumble || null;
     this.post = cine || null;
     this.renderer = renderer || null;
     this.settings = settings;
@@ -62,6 +66,7 @@ export class Match {
     this.slowT = 0;
     this.timeScale = 1;
     this.shakeAmt = 0;
+    this.kickX = 0; this.fovKick = 0; this.koCam = null;
     this.cine = null;
     this.dt = 0;
     // temporary presentation set by ultimates; both expire on their own so a cut-short move
@@ -85,6 +90,7 @@ export class Match {
     for (const p of this.projectiles) this.killProjectile(p);
     this.projectiles = [];
     this.fx.clear();
+    this.koCam = null;
   }
 
   // ---------------- hit resolution ----------------
@@ -123,15 +129,17 @@ export class Match {
       def.ult = Math.min(100, def.ult + 2.5);
       att.ult = Math.min(100, att.ult + 1.5);
       def.stats.blocked++;
-      this.fx.hitSpark(contact, 0x9fd8ff, 0.5, true);
+      this.fx.hitSpark(contact, 0x9fd8ff, 0.5, true, new THREE.Vector3(dir, 0.05, 0));
       this.audio.play(def.hero.id === 'cap' ? 'shield' : 'block', 0.9);
-      this.hitstop(0.04);
+      if (att.state === 'attack') this.hitstopPair(att, def, 0.05, 0.012); else this.hitstop(0.04);
       if (def.hp <= 0) this.onKO(att, def);
       return 'blocked';
     }
     const comboing = def.isStunned();
     att.combo = comboing ? att.combo + 1 : 1;
-    const mul = 1 + Math.min(att.combo - 1, 6) * 0.04;
+    // combo damage scaling: hits 1-2 at full damage, then -10% per hit down to a 50% floor.
+    // Ultimates are exempt (their multi-hit sequences are already tuned).
+    const mul = hit.kind === 'ult' ? 1 : COMBO_SCALE[Math.min(att.combo, COMBO_SCALE.length) - 1];
     const dmg = hit.dmg * att.hero.power * def.hero.defense * mul * DAMAGE_SCALE;
     def.hp = Math.max(0, def.hp - dmg);
     if (att.state !== 'ultimate') att.ult = Math.min(100, att.ult + dmg * (1.05 + att.combo * 0.05));
@@ -139,21 +147,27 @@ export class Match {
     att.stats.dmg += dmg; att.stats.hits++; att.stats.maxCombo = Math.max(att.stats.maxCombo, att.combo);
     def.takeHit(hit, dir);
     const power = hit.spark ?? ({ light: 0.6, medium: 1, heavy: 1.5, special: 1.3, ult: 1.2 }[hit.kind] || 1);
-    this.fx.hitSpark(contact, hit.color ?? 0xffa040, power);
+    // the blow's direction: forward along the attack, lifted for launchers, dipped for low hits
+    const impact = new THREE.Vector3(dir, hit.launch ? 0.95 : hit.knockdown ? 0.35 : hit.height === 'low' ? -0.2 : 0.12, 0);
+    this.fx.hitSpark(contact, hit.color ?? 0xffa040, power, false, impact);
+    if (def.onGround && (hit.push ?? 0) >= 4) this.fx.emit(new THREE.Vector3(def.x, 0.08, 0.1), { count: 4 + Math.round(hit.push), color: 0x8a7f73, color2: 0x4a443e, dir: new THREE.Vector3(dir, 0.3, 0), spread: 0.6, speed: 3.5, life: 0.5, size: 0.3, drag: 3, gravity: 0.6, grow: 0.8 });
     if (hit.zap) this.fx.bolt(contact.clone().add(new THREE.Vector3(0, 1.2, 0)), contact, 0x9fd8ff, 0.15, 0.07, 1);
     const sfx = hit.sfx || 'light';
     this.audio.hit(hit.kind === 'light' && sfx === 'heavy' ? 'medium' : hit.kind, hit.sfxVol ?? 1, sfx === 'light' || sfx === 'heavy' ? null : sfx);
     if (def.hp <= 0) this.audio.grunt(def.hero, 'ko', 1.1);
     else if (dmg > 3.5 || Math.random() < 0.35) this.audio.grunt(def.hero, 'hurt', 0.8 + Math.min(0.4, dmg * 0.03));
     const k = hit.kind;
-    this.shake(hit.shake ?? (k === 'heavy' ? 0.35 : k === 'medium' ? 0.18 : k === 'special' ? 0.3 : k === 'ult' ? 0.25 : 0.08));
-    this.hitstop(k === 'heavy' ? 0.1 : k === 'medium' ? 0.065 : k === 'special' ? 0.08 : k === 'ult' ? 0.05 : 0.045);
+    this.shake(hit.shake ?? (k === 'heavy' ? 0.35 : k === 'medium' ? 0.18 : k === 'special' ? 0.3 : k === 'ult' ? 0.25 : 0.08), dir);
+    const stop = k === 'heavy' ? 0.1 : k === 'medium' ? 0.065 : k === 'special' ? 0.08 : k === 'ult' ? 0.05 : 0.045;
+    // ordinary strikes use asymmetric hit-stop; specials, ultimates and projectiles keep the global freeze
+    if (att.state === 'attack' && (k === 'light' || k === 'medium' || k === 'heavy')) this.hitstopPair(att, def, stop * 1.15, { light: 0.02, medium: 0.032, heavy: 0.05 }[k]);
+    else this.hitstop(stop);
     if (this.post) {
       const amt = { light: 0.0, medium: 0.025, heavy: 0.05, special: 0.04, ult: 0.03 }[k] ?? 0.02;
       if (amt > 0) { const v = contact.clone().project(this.camera); this.post.impactAt(new THREE.Vector2(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5), amt * (hit.final ? 2 : 1)); }
       if (hit.launch || hit.knockdown) this.post.motion(dir, 0.012);
     }
-    if (att.combo >= 2) this.hud.combo(att.side, att.combo, PRAISE[Math.min(att.combo, PRAISE.length - 1)]);
+    if (att.combo >= 2) this.hud.combo(att.side, att.combo, PRAISE[Math.min(att.combo, PRAISE.length - 1)], mul);
     if (def.hp <= 0) this.onKO(att, def);
     return 'hit';
   }
@@ -222,8 +236,22 @@ export class Match {
   }
 
   // ---------------- feel ----------------
-  shake(a) { if (this.settings.shake) this.shakeAmt = Math.max(this.shakeAmt, a); }
+  shake(a, dirX = 0) {
+    if (!this.settings.shake) return;
+    this.shakeAmt = Math.max(this.shakeAmt, a);
+    // directional shove along the blow plus a brief FOV punch-in on the heavier impacts
+    if (dirX) this.kickX += dirX * a * 0.22;
+    if (a >= 0.3) this.fovKick = Math.max(this.fovKick, Math.min(2.2, a * 2));
+    if (a >= 0.5) this.rumble(Math.min(1, a * 0.7), 100 + a * 160);
+  }
+  rumble(strength, ms) { if (this.rumbleFn) this.rumbleFn(strength, ms); }
   hitstop(t) { this.stopT = Math.max(this.stopT, t); }
+  // asymmetric hit-stop for ordinary strikes: the struck fighter freezes (and vibrates) longer than
+  // the attacker, so the blow reads as the attacker pushing through while the victim eats it
+  hitstopPair(att, def, t, amp = 0) {
+    def.freezeT = Math.max(def.freezeT, t); def.freezeAmp = amp;
+    att.freezeT = Math.max(att.freezeT, t * ATTACKER_FREEZE); att.freezeAmp = 0;
+  }
 
   // dim the arena (0..1) for `dur` seconds; it eases back afterwards
   setDark(level, dur) { this.darkLevel = level; this.darkUntil = this.time + dur; }
@@ -242,12 +270,27 @@ export class Match {
     if (this.phase !== 'fight') return;
     this.phase = 'ko'; this.phaseT = 0;
     this.roundWinner = att;
-    this.slowT = 1.4;
+    // knockout sequence: (1) a long final-blow freeze, (2) slow motion with a close camera on the
+    // loser as they fly back, (3) a white-out flash, shockwave ring and a hard FOV punch
+    const dir = Math.sign(def.x - att.x) || att.facing;
+    this.hitstop(0.22);
+    this.slowT = 1.7;
+    this.koCam = { f: def, dir };
     this.hud.announce('K.O.', 'red', 1.8);
-    if (this.post) this.post.impact(1);
+    const chest = def.chestPos();
+    this.fx.hitSpark(chest, 0xffffff, 2.2, false, new THREE.Vector3(dir, 0.4, 0));
+    this.fx.ring(chest, 0xffffff, 3.2, 0.45, 'face', 0.1);
+    this.fx.flashLight(chest, 0xffffff, 18, 0.3);
+    if (this.post) {
+      this.post.impact(1);
+      const v = chest.clone().project(this.camera);
+      this.post.impactAt(new THREE.Vector2(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5), 0.1);
+      this.post.motion(dir, 0.02);
+    }
     this.audio.play('ko');
     this.audio.say('K.O.');
-    this.shake(1);
+    this.shake(1, dir);
+    this.fovKick = 3.2;
   }
 
   // ---------------- update ----------------
@@ -260,9 +303,12 @@ export class Match {
     this.exposureMul += ((1 - 0.62 * dark) - this.exposureMul) * Math.min(1, realDt * (dark ? 5 : 3));
     if (this.camFocus && (this.time > this.camFocus.until || this.phase !== 'fight')) this.camFocus = null;
     this.arena.update(realDt, this.time);
-    for (const f of this.fighters) f.ctrl.update(realDt, f, this.opponentOf(f), this);
+    // the input-buffer clock crawls (x0.25) while a fighter is frozen by hit-stop or a cinematic, so a
+    // press made during the freeze is still alive when the fighter can act again
+    for (const f of this.fighters) f.ctrl.update((this.stopT > 0 || this.cine || f.freezeT > 0) ? realDt * 0.25 : realDt, f, this.opponentOf(f), this);
 
-    if (this.slowT > 0) { this.slowT -= realDt; this.timeScale = 0.3; } else this.timeScale = 1;
+    // KO slow motion eases back to full speed over its last 0.4 s instead of snapping
+    if (this.slowT > 0) { this.slowT -= realDt; this.timeScale = this.slowT > 0.4 ? 0.3 : 0.3 + 0.7 * (1 - Math.max(0, this.slowT) / 0.4); } else this.timeScale = 1;
     let dt = realDt * this.timeScale;
 
     if (this.cine) {
@@ -285,7 +331,10 @@ export class Match {
 
     if (dt > 0) {
       const [a, b] = this.fighters;
-      a.update(dt, b); b.update(dt, a);
+      for (const [f, o] of [[a, b], [b, a]]) {
+        if (f.freezeT > 0) { f.freezeT -= realDt; if (f.freezeT > 0) { f.freezeVisual(); continue; } f.freezeAmp = 0; }
+        f.update(dt, o);
+      }
       this.resolvePush(a, b);
       if (this.post) for (const f of this.fighters) if (Math.abs(f.vx) > 9 && (f.state === 'special' || f.state === 'ultimate' || f.state === 'attack')) this.post.motion(Math.sign(f.vx), Math.min(0.016, Math.abs(f.vx) * 0.0007));
       this.updateProjectiles(dt);
@@ -435,6 +484,12 @@ export class Match {
       const t = this.cine.t;
       faceShot(f, 0.9 - t * 0.25, 1.15 * f.scale + 0.4 - t * 0.35, -0.05);
       rate = 7;
+    } else if (this.koCam && this.phase === 'ko' && this.phaseT < 2.0) {
+      // knockout shot: over the winner's side, tracking the loser as they fly away
+      const f = this.koCam.f, h = f.headPos();
+      pos.set(h.x - this.koCam.dir * 1.5 * f.scale, Math.max(0.9, h.y * 0.7) + 0.2, 3.6 * f.scale);
+      look.set(h.x + this.koCam.dir * 0.4, h.y * 0.85, 0);
+      rate = 7;
     } else if (this.camFocus) {
       const c = this.camFocus;
       faceShot(c.f, c.dx, c.dz * c.f.scale, c.dy * c.f.scale);
@@ -455,9 +510,10 @@ export class Match {
     this.camLook.lerp(look, k);
     this.camera.position.copy(this.camPos);
     if (this.post) {
-      const close = this.phase === 'intro' || this.cineActive || !!this.camFocus || (this.phase === 'ko' || this.phase === 'timeout') && this.phaseT > 2 || this.phase === 'over';
+      const koShot = !!this.koCam && this.phase === 'ko' && this.phaseT < 2.0;
+      const close = this.phase === 'intro' || this.cineActive || !!this.camFocus || koShot || (this.phase === 'ko' || this.phase === 'timeout') && this.phaseT > 2 || this.phase === 'over';
       this.post.setFocus(this.camPos.distanceTo(this.camLook), close ? 2.2 : 7);
-      this.post.letterbox(!!(this.phase === 'intro' || this.cineActive || this.camFocus || this.phase === 'over' || ((this.phase === 'ko' || this.phase === 'timeout') && this.phaseT > 2)));
+      this.post.letterbox(!!(this.phase === 'intro' || this.cineActive || this.camFocus || koShot || this.phase === 'over' || ((this.phase === 'ko' || this.phase === 'timeout') && this.phaseT > 2)));
     }
     this.fighters.forEach((f, i) => {
       const L = this.rimLights[i];
@@ -473,6 +529,10 @@ export class Match {
       this.camera.position.y += (Math.random() - 0.5) * s;
       this.shakeAmt *= Math.exp(-9 * dt);
     }
+    if (Math.abs(this.kickX) > 0.001) { this.camera.position.x += this.kickX; this.kickX *= Math.exp(-12 * dt); } else this.kickX = 0;
+    const fov = BASE_FOV - this.fovKick;
+    if (Math.abs(this.camera.fov - fov) > 0.001) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
+    this.fovKick *= Math.exp(-9 * dt);
     this.camera.lookAt(this.camLook);
   }
 

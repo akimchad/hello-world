@@ -184,6 +184,9 @@ function setShowcaseStage(id) {
 }
 
 // ---------------------------------------------------------------- portraits
+// per-hero framing: Hulk hunches his head forward, so a more frontal, wider shot lit from above
+// (shadowed brow); Groot's branch crown needs a little more headroom
+const PORTRAIT = { hulk: { turn: 0.25, dist: 1.0, dy: 0.1, lx: -0.04, key: [0.6, 5, 1.6] }, groot: { dist: 1.12, dy: 0.06 } };
 function renderPortraits() {
   const W = 192, H = 232;
   let r;
@@ -198,11 +201,12 @@ function renderPortraits() {
     const col = new THREE.Color(h.color);
     scene.background = col.clone().multiplyScalar(0.22);
     scene.add(new THREE.HemisphereLight(0xffffff, 0x202030, 1.1));
-    const key = new THREE.DirectionalLight(0xffffff, 2.6); key.position.set(2, 3, 4); scene.add(key);
+    const pf = PORTRAIT[h.id] || {};
+    const key = new THREE.DirectionalLight(0xffffff, 2.6); key.position.set(...(pf.key || [2, 3, 4])); scene.add(key);
     const rim = new THREE.DirectionalLight(col, 4); rim.position.set(-3, 2, -3); scene.add(rim);
     const pm = new THREE.PMREMGenerator(r); const envScene = new THREE.Scene(); envScene.background = new THREE.Color(0x404858); const envRT = pm.fromScene(envScene, 0.04); scene.environment = envRT.texture;
     const rig = h.build(false);
-    rig.root.rotation.y = 0.45;
+    rig.root.rotation.y = pf.turn ?? 0.45;
     scene.add(rig.root);
     rig.setExpression(h.id === 'doom' ? 'roar' : 'grit');
     for (let k = 0; k < 30; k++) { rig.update(POSES.idle, 0.05, 30); rig.root.updateMatrixWorld(true); rig.lateUpdate(0.05); }
@@ -210,8 +214,9 @@ function renderPortraits() {
     const head = rig.J.head.localToWorld(rig.headCenter.clone());
     const cam = new THREE.PerspectiveCamera(30, W / H, 0.05, 50);
     const s = rig.dims.scale;
-    cam.position.set(head.x + 0.28 * s, head.y - 0.05 * s, head.z + 0.95 * s);
-    cam.lookAt(head.x + 0.02, head.y - 0.12 * s, head.z);
+    const dist = pf.dist || 0.95, dy = pf.dy || 0;
+    cam.position.set(head.x + 0.28 * s * dist, head.y + (dy - 0.05) * s, head.z + dist * s);
+    cam.lookAt(head.x + 0.02 + (pf.lx || 0) * s, head.y + (dy - 0.12) * s, head.z);
     r.render(scene, cam);
     const c = cards[i];
     if (c) { c.width = W; c.height = H; c.getContext('2d').drawImage(r.domElement, 0, 0); }
@@ -434,7 +439,7 @@ function startMatch(opts = {}) {
   const inputs = [cpu[0] ? cpuInputs[0] : humanInputs[0], cpu[1] ? cpuInputs[1] : humanInputs[1]];
   app.lastMatch = { cpu };
   match = new Match({
-    heroes, stageId: STAGES[app.stage].id, cpu, settings: { ...settings }, audio, inputs, hud, renderer, cine,
+    heroes, stageId: STAGES[app.stage].id, cpu, settings: { ...settings }, audio, inputs, hud, renderer, cine, rumble: (s, ms) => pads.rumble(s, ms),
     onEnd: (res) => setTimeout(() => showVictory(res), 1600),
   });
   match.resize(innerWidth, innerHeight);
@@ -624,7 +629,8 @@ function frame(now) {
   fpsAcc += dt; fpsN++;
   if (fpsAcc > 1) { window.__game.fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
   pads.poll();
-  for (const h of humanInputs) h.update(dt);
+  // (the input buffer clock is advanced by Match.update; ticking it here as well made it run at
+  // double speed and halved the effective buffer window)
   let scene, camera;
   if (match && (app.screen === 'fight' || app.screen === 'victory')) {
     if (!app.paused && !app.overlays.length && !window.__game.manual) match.update(dt);
@@ -681,7 +687,7 @@ window.__game.pads = pads;
 window.__game.step = (n = 1, dt = 1 / 60) => {
   if (!match) return null;
   window.__game.manual = true;
-  for (let i = 0; i < n; i++) { for (const h of humanInputs) h.update(dt); match.update(dt); }
+  for (let i = 0; i < n; i++) match.update(dt);
   renderer.toneMappingExposure = (match.arena.exposure || 1) * (match.exposureMul ?? 1);
   draw(match.scene, match.camera, dt, performance.now());
   return match;

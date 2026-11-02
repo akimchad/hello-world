@@ -1,8 +1,7 @@
 {
   "models": {
     "spiderman": {
-      "url": "models/spiderman-2026/spiderman.glb",
-      "autorig": true
+      "url": "models/spiderman-ultimate/spiderman.glb"
     },
     "ironman": {
       "url": "models/iron-man-with-no-rig/extracted/iron-man-rig/source/iron man.fbx",
@@ -30,7 +29,16 @@
       }
     },
     "hulk": {
-      "url": "models/hulk-2026/hulk.glb"
+      "url": "models/hulk-mua/hulk.glb",
+      "clips": {
+        "block": "blocking",
+        "punch": "attack_light1",
+        "punch2": "attack_light2",
+        "kick": "attack_light3",
+        "heavy": "attack_heavy1",
+        "uppercut": "attack_popup1",
+        "sweep": "attack_trip1"
+      }
     },
     "cap": {
       "url": "models/07-captain-america-mua/source/07_captamerica.fbx",
@@ -40,13 +48,13 @@
         "punch": "attack_light1",
         "punch2": "attack_light2",
         "kick": "attack_light3",
-        "heavy": "attack_heavy1",
         "uppercut": "attack_knockback1",
         "special": "power_1"
       }
     },
     "gamora": {
-      "url": "models/fn-gamora-by-sidgara-detqt8i/extracted/FN Gamora/FN Gamora.fbx"
+      "url": "models/fn-gamora-by-sidgara-detqt8i/extracted/FN Gamora/FN Gamora.fbx",
+      "grip": "Melee_TwoHanded_Handle"
     },
     "doom": {
       "url": "models/dr-doom-v2/extracted/Dr Doom V2/Dr Doom V2 - Visiion.fbx"
@@ -60,7 +68,7 @@
       }
     },
     "groot": {
-      "url": "models/groot/groot.glb"
+      "url": "models/groot-king/groot.glb"
     },
     "venom": {
       "url": "models/venom/venom.glb"
@@ -68,5 +76,19 @@
     "deadpool": {
       "url": "models/deadpool/deadpool.glb"
     }
+  },
+  "audio": {
+    "cap_hurt": "audio/cap_hurt.wav",
+    "cap_ko": "audio/cap_ko.wav",
+    "ironman_hurt": "audio/ironman_hurt.wav",
+    "ironman_ko": "audio/ironman_ko.wav",
+    "spiderman_hurt": "audio/spiderman_hurt.wav",
+    "spiderman_ko": "audio/spiderman_ko.wav",
+    "thor_hurt": "audio/thor_hurt.wav",
+    "thor_ko": "audio/thor_ko.wav",
+    "deadpool_hurt": "audio/deadpool_hurt.wav",
+    "deadpool_ko": "audio/deadpool_ko.wav",
+    "sentry_hurt": "audio/sentry_hurt.wav",
+    "sentry_ko": "audio/sentry_ko.wav"
   }
 }

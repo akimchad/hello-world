@@ -32,6 +32,15 @@ export class HUD {
     this.last = {};
   }
 
+  // a hit big enough to crack the health bar's frame for a moment
+  shatter(side) {
+    const fr = this.el.hp[side] && this.el.hp[side].closest('.hp-frame');
+    if (!fr) return;
+    fr.classList.remove('shatter'); void fr.offsetWidth; fr.classList.add('shatter');
+    clearTimeout(this.shatterT && this.shatterT[side]);
+    (this.shatterT ||= [])[side] = setTimeout(() => fr.classList.remove('shatter'), 900);
+  }
+
   pips(match) {
     match.fighters.forEach((f, i) => {
       const box = this.el.pips[i];
@@ -78,9 +87,11 @@ export class HUD {
     this.announceT = dur;
   }
 
-  combo(side, n, praise) {
+  combo(side, n, praise, scale = 1) {
     const c = this.el.combo[side];
-    c.innerHTML = `${n} HITS${praise ? `<small>${praise}</small>` : ''}`;
+    const dmg = scale < 1 ? `${Math.round(scale * 100)}% DMG` : '';
+    const sub = [praise, dmg].filter(Boolean).join(' · ');
+    c.innerHTML = `${n} HITS${sub ? `<small>${sub}</small>` : ''}`;
     c.classList.add('show');
     this.comboT[side] = 1.3;
   }
