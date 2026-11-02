@@ -57,6 +57,9 @@ export const POSES = {
   airHit: P({ spine: [-0.6, 0, 0], head: [-0.5, 0, 0], lSh: [-2.2, 0, 0.9], lEl: [-0.4, 0, 0], rSh: [-2.0, 0, -0.9], rEl: [-0.4, 0, 0], lHip: [-0.9, 0, 0.1], lKnee: [1.1, 0, 0], rHip: [-0.3, 0, -0.1], rKnee: [0.8, 0, 0], bodyX: -0.6 }),
   down: P({ spine: [0.05, 0, 0], head: [0.15, 0.4, 0], lSh: [-0.2, 0, 1.3], lEl: [-0.3, 0, 0], rSh: [-0.3, 0, -1.1], rEl: [-0.6, 0, 0], lHip: [-0.1, 0, 0.2], lKnee: [0.3, 0, 0], rHip: [-0.5, 0, -0.15], rKnee: [0.9, 0, 0], lie: 1 }),
   getup: P({ spine: [0.7, 0, 0], head: [-0.3, 0, 0], lSh: [-0.6, 0, 0.5], lEl: [-0.8, 0, 0], rSh: [-0.6, 0, -0.5], rEl: [-0.8, 0, 0], ...LEGS_CROUCH }),
+  spinKickW: P({ spine: [0.1, 0.6, 0], head: [-0.05, -0.5, 0], ...GUARD, lHip: [-0.3, 0, 0.1], lKnee: [0.5, 0, 0], rHip: [-1.2, 0, -0.3], rKnee: [1.8, 0, 0], bodyY: 2.5 }),
+  spinKick: P({ spine: [-0.3, -0.2, 0], head: [0.2, 0.2, 0], ...GUARD, lHip: [0.1, 0, 0.1], lKnee: [0.2, 0, 0], rHip: [-1.7, 0, -0.6], rKnee: [0.05, 0, 0], bodyY: -0.15 }),
+  wave: P({ spine: [-0.05, 0, 0], head: [0.05, 0, 0.15], lSh: [-0.3, 0, 0.3], lEl: [-1.6, 0, 0], rSh: [-0.2, 0, -2.6], rEl: [-1.1, 0, 0], lHip: [0, 0, 0.12], lKnee: [0.1, 0, 0], rHip: [0, 0, -0.12], rKnee: [0.1, 0, 0] }),
   victory: P({ spine: [-0.1, 0.2, 0], head: [0.15, -0.1, 0], lSh: [-0.25, 0, 0.55], lEl: [-1.9, 0, 0], rSh: [-3.0, 0, -0.15], rEl: [-0.25, 0, 0], lHip: [0, 0, 0.16], lKnee: [0.05, 0, 0], rHip: [0, 0, -0.16], rKnee: [0.05, 0, 0] }),
   taunt: P({ spine: [-0.1, 0, 0], head: [0.1, 0, 0], lSh: [-0.2, 0, 0.45], lEl: [-1.9, 0, 0], rSh: [-0.2, 0, -0.45], rEl: [-1.9, 0, 0], lHip: [0, 0, 0.18], lKnee: [0.05, 0, 0], rHip: [0, 0, -0.18], rKnee: [0.05, 0, 0] }),
 };
@@ -121,6 +124,36 @@ export class Rig {
 
   setExpression(name) { if (this.face) this.face.set(name); }
 
+  // stretch the forearms along their length (Groot's growing branch arms); k = 1 is normal
+  setReach(k, dt) {
+    if (!this.J.lEl || !this.J.lEl.isBone) return;
+    this.reachK = (this.reachK ?? 1) + (k - (this.reachK ?? 1)) * Math.min(1, dt * 18);
+    for (const j of [this.J.lEl, this.J.rEl]) j.scale.y = this.reachK;
+  }
+
+  // fade the whole hero out (k = 0 invisible, 1 normal); restores the original materials at 1
+  setFade(k) {
+    if (k >= 0.999) {
+      if (this.fadeMats) {
+        for (const f of this.fadeMats) { f.m.transparent = f.t; f.m.opacity = f.o; f.m.depthWrite = f.dw; f.m.needsUpdate = true; }
+        for (const [o, cs] of this.fadeShadows) o.castShadow = cs;
+        this.fadeMats = null; this.fadeShadows = null;
+      }
+      this.body.visible = true;
+      return;
+    }
+    if (!this.fadeMats) {
+      const all = new Set();
+      this.fadeShadows = new Map();
+      this.root.traverse((o) => { if (o.isMesh) { this.fadeShadows.set(o, o.castShadow); (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m && all.add(m)); } });
+      this.fadeMats = [...all].map((m) => ({ m, t: m.transparent, o: m.opacity, dw: m.depthWrite }));
+      for (const f of this.fadeMats) { f.m.transparent = true; f.m.needsUpdate = true; }
+    }
+    for (const f of this.fadeMats) { f.m.opacity = f.o * k; f.m.depthWrite = k > 0.6 && f.dw; }
+    for (const o of this.fadeShadows.keys()) o.castShadow = k > 0.5 && this.fadeShadows.get(o);
+    this.body.visible = k > 0.02; // fully gone: also out of the depth/AO passes
+  }
+
   // darken every material toward a shadow form (Sentry's Void)
   setVoid(v) { this.voidTarget = v; }
   applyVoid(dt) {
@@ -130,14 +163,18 @@ export class Rig {
     if (!this.voidMats) {
       const all = new Set();
       this.root.traverse((o) => { if (o.isMesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m.color && all.add(m)); });
-      this.voidMats = [...all].map((m) => ({ m, c: m.color.clone(), sh: m.sheen || 0, cc: m.clearcoat || 0, env: m.envMapIntensity ?? 1 }));
+      this.voidMats = [...all].map((m) => ({ m, c: m.color.clone(), sh: m.sheen || 0, cc: m.clearcoat || 0, env: m.envMapIntensity ?? 1, ei: m.emissiveIntensity ?? 1 }));
     }
     this.voidAmt += (target - this.voidAmt) * Math.min(1, dt * 5);
     if (Math.abs(this.voidAmt - target) < 0.003) this.voidAmt = target;
     const k = this.voidAmt;
     const dark = new THREE.Color(0x07040c);
-    for (const { m, c, sh, cc, env } of this.voidMats) {
+    // glows dim with the shadow; once fully back, emissive is left to the hit flash again
+    const touchE = k > 0.001 || this.voidGlow;
+    this.voidGlow = k > 0.001;
+    for (const { m, c, sh, cc, env, ei } of this.voidMats) {
       m.color.copy(c).lerp(dark, k * 0.96);
+      if (touchE && m.emissiveIntensity !== undefined) m.emissiveIntensity = ei * (1 - k * 0.9);
       if (m.sheen !== undefined) m.sheen = sh * (1 - k);
       if (m.clearcoat !== undefined) m.clearcoat = cc * (1 - k * 0.6);
       if (m.envMapIntensity !== undefined) m.envMapIntensity = env * (1 - k * 0.7);

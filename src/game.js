@@ -15,6 +15,7 @@ function overlap(a, b) { return a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y
 export class Match {
   constructor({ heroes, stageId, cpu, settings, audio, inputs, hud, onEnd, renderer, cine }) {
     this.post = cine || null;
+    this.renderer = renderer || null;
     this.settings = settings;
     this.audio = audio;
     this.hud = hud;
@@ -63,6 +64,10 @@ export class Match {
     this.shakeAmt = 0;
     this.cine = null;
     this.dt = 0;
+    // temporary presentation set by ultimates; both expire on their own so a cut-short move
+    // can never leave the arena dark or the camera stuck
+    this.exposureMul = 1; this.darkLevel = 0; this.darkUntil = 0;
+    this.camFocus = null;
     this.camPos = new THREE.Vector3(0, 5, 22);
     this.camLook = new THREE.Vector3(0, 1.2, 0);
     this.camera.position.copy(this.camPos);
@@ -220,6 +225,11 @@ export class Match {
   shake(a) { if (this.settings.shake) this.shakeAmt = Math.max(this.shakeAmt, a); }
   hitstop(t) { this.stopT = Math.max(this.stopT, t); }
 
+  // dim the arena (0..1) for `dur` seconds; it eases back afterwards
+  setDark(level, dur) { this.darkLevel = level; this.darkUntil = this.time + dur; }
+  // frame `f` in a close shot until `dur` seconds from now
+  focusOn(f, dur, { dx = 1.2, dz = 2.6, dy = -0.35 } = {}) { this.camFocus = { f, until: this.time + dur, dx, dz, dy }; }
+
   ultCinematic(f) {
     this.cine = { f, t: 0, dur: 0.95 };
     if (this.post) this.post.impact(0.35);
@@ -246,6 +256,9 @@ export class Match {
     if (this.arena.group.userData.thunder) { this.arena.group.userData.thunder = false; setTimeout(() => this.audio.thunder(), 300 + Math.random() * 900); }
     this.time += realDt;
     this.phaseT += realDt;
+    const dark = this.time < this.darkUntil ? this.darkLevel : 0;
+    this.exposureMul += ((1 - 0.62 * dark) - this.exposureMul) * Math.min(1, realDt * (dark ? 5 : 3));
+    if (this.camFocus && (this.time > this.camFocus.until || this.phase !== 'fight')) this.camFocus = null;
     this.arena.update(realDt, this.time);
     for (const f of this.fighters) f.ctrl.update(realDt, f, this.opponentOf(f), this);
 
@@ -422,6 +435,10 @@ export class Match {
       const t = this.cine.t;
       faceShot(f, 0.9 - t * 0.25, 1.15 * f.scale + 0.4 - t * 0.35, -0.05);
       rate = 7;
+    } else if (this.camFocus) {
+      const c = this.camFocus;
+      faceShot(c.f, c.dx, c.dz * c.f.scale, c.dy * c.f.scale);
+      rate = 6;
     } else if ((this.phase === 'ko' || this.phase === 'timeout') && this.phaseT > 2.0 && this.roundWinner) {
       const w = this.roundWinner;
       const t = this.phaseT - 2;
@@ -438,9 +455,9 @@ export class Match {
     this.camLook.lerp(look, k);
     this.camera.position.copy(this.camPos);
     if (this.post) {
-      const close = this.phase === 'intro' || this.cineActive || (this.phase === 'ko' || this.phase === 'timeout') && this.phaseT > 2 || this.phase === 'over';
+      const close = this.phase === 'intro' || this.cineActive || !!this.camFocus || (this.phase === 'ko' || this.phase === 'timeout') && this.phaseT > 2 || this.phase === 'over';
       this.post.setFocus(this.camPos.distanceTo(this.camLook), close ? 2.2 : 7);
-      this.post.letterbox(!!(this.phase === 'intro' || this.cineActive || this.phase === 'over' || ((this.phase === 'ko' || this.phase === 'timeout') && this.phaseT > 2)));
+      this.post.letterbox(!!(this.phase === 'intro' || this.cineActive || this.camFocus || this.phase === 'over' || ((this.phase === 'ko' || this.phase === 'timeout') && this.phaseT > 2)));
     }
     this.fighters.forEach((f, i) => {
       const L = this.rimLights[i];

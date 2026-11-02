@@ -35,6 +35,9 @@ export class Fighter {
     this.hp = this.maxHp;
     this.ult = this.ult ?? 0;
     this.specialCd = 0;
+    this.slowT = 0; this.rootT = 0; this.rootImmune = 0; this.frozen = false; this.faceCam = false;
+    if (this.rig.setFade) this.rig.setFade(1);
+    if (this.root) this.root.scale.setScalar(1);
     this.state = 'intro';
     this.stateT = 0;
     this.onGround = true;
@@ -65,6 +68,7 @@ export class Fighter {
     this.ultT = 0; this.fired = false; this.targetX = undefined; this.hitId = null; this.locked = false; this.lockT = 0;
     this.seqIdx = 0; this.leapt = false; this.slammed = false; this.slamT = 0; this.chargeFx = false; this.beamTick = 0; this.beamHits = 0;
     this.noPush = false; this.armor = false;
+    this.started = false; this.recede = undefined; this.erasing = false; this.returned = false; this.erasedSfx = false; this.engaged = false; this.quipped = false;
   }
 
   snapFacing() { this.root.rotation.y = this.facing * FACE_ANGLE; }
@@ -96,6 +100,7 @@ export class Fighter {
     this.stateT = 0;
     this.hitId = newHitId();
     this.moveHit = false;
+    this.flicked = false;
     this.crouching = !!this.move.crouch;
     this.blocking = false;
     if (this.onGround && !this.move.air) this.vx *= 0.3;
@@ -153,13 +158,16 @@ export class Fighter {
     this.sweat = Math.min(1, (this.sweat || 0) + 0.025 + (hit.dmg || 0) * 0.004);
     const kick = new THREE.Vector3(dir * (2 + (hit.push || 0) * 0.6), 1.5 + (hit.launch ? 3 : 0), (Math.random() - 0.5) * 2);
     for (const c of this.rig.cloths) c.impulse(kick);
-    this.flash(0xffffff, 0.1);
+    if (!hit.noFlash) this.flash(0xffffff, 0.1);
     if (this.hp <= 0) {
       this.state = 'ko'; this.stateT = 0;
       this.vy = Math.max(7, hit.launch || 0); this.vx = dir * 5; this.onGround = false; this.crouching = false;
       return;
     }
     if (this.state === 'locked' && hit.keepLock) { this.stateT = 0; return; }
+    // status effects: roots/webs pin the feet (with immunity afterwards so they can't chain), slows linger
+    if (hit.slow) { this.slowT = Math.max(this.slowT, Math.min(hit.slow, 2)); this.slowColor = hit.color ?? 0xffffff; }
+    if (hit.root && this.rootImmune <= 0) { this.rootT = Math.min(hit.root, 1.2); this.rootImmune = this.rootT + 2; }
     if (this.armor && hit.kind === 'light' && this.onGround) return; // super armor
     const airborne = !this.onGround;
     this.crouching = false; this.blocking = false; this.move = null;
@@ -195,8 +203,12 @@ export class Fighter {
     this.stateT += dt;
     if (this.specialCd > 0 && !(this.state === 'special')) this.specialCd = Math.max(0, this.specialCd - dt);
     if (this.invuln > 0) this.invuln -= dt;
+    if (this.slowT > 0) { this.slowT -= dt; if (Math.random() < dt * 14) g.fx.emit(new THREE.Vector3(this.x + (Math.random() - 0.5) * 0.4, this.y + Math.random() * 1.6 * this.scale, 0.2), { count: 1, color: this.slowColor ?? 0xffffff, speed: 0.4, life: 0.4, size: 0.14 }); }
+    if (this.rootT > 0) this.rootT -= dt;
+    if (this.rootImmune > 0) this.rootImmune -= dt;
     if (this.flashT > 0) this.flashT -= dt;
     this.poseName = null;
+    this.reachWant = 1;
     this.sinceHit = (this.sinceHit || 0) + dt;
     if (g.phase === 'fight') { this.sweat = Math.min(1, (this.sweat || 0) + dt * 0.006); if ((this._sweatT = (this._sweatT || 0) + dt) > 0.25) { this._sweatT = 0; setSweat(this.rig, this.sweat); } }
     if (this.hero.regen && this.sinceHit > 3 && this.hp > 0 && this.hp < this.maxHp * 0.5 && g.phase === 'fight') this.hp = Math.min(this.maxHp * 0.5, this.hp + 1.5 * dt);
@@ -220,12 +232,12 @@ export class Fighter {
         if (c.take('special') && this.startSpecial()) break;
         if (c.take('light')) { this.startMove(this.crouching ? 'sweep' : 'jab'); break; }
         if (c.take('heavy')) { this.startMove(this.crouching ? 'upper' : 'heavy'); break; }
-        if (!this.crouching && !this.blocking && c.take('up')) { this.jump(c); break; }
+        if (!this.crouching && !this.blocking && this.rootT <= 0 && c.take('up')) { this.jump(c); break; }
         let dir = (c.held('right') ? 1 : 0) - (c.held('left') ? 1 : 0);
-        if (this.crouching || this.blocking) dir = 0;
+        if (this.crouching || this.blocking || this.rootT > 0) dir = 0;
         if (dir) {
           const back = dir !== this.facing;
-          const target = dir * this.hero.speed * (back ? 0.78 : 1);
+          const target = dir * this.hero.speed * (back ? 0.78 : 1) * (this.slowT > 0 ? 0.5 : 1);
           this.vx += (target - this.vx) * Math.min(1, dt * 18);
           this.walkPhase += dt * this.hero.speed * 2.6 * (back ? -1 : 1);
         } else {
@@ -248,6 +260,16 @@ export class Fighter {
       case 'attack': {
         const m = this.move, s = this.hero.attackSpeed;
         const st = m.startup * s, act = m.active * s, tot = this.moveTotal();
+        if (m.webFlick && !this.flicked && this.stateT >= st) {
+          // web-assisted jab: a short strand snaps from the wrist
+          this.flicked = true;
+          const hand = this.rig.anchors && this.rig.anchors.cast2;
+          const a = hand ? hand.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3(this.x + this.facing * 0.5, this.y + 1.4 * this.scale, 0.2);
+          const b = a.clone().add(new THREE.Vector3(this.facing * 0.9 * this.scale, 0.05, 0));
+          const strand = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 1, 4), new THREE.MeshBasicMaterial({ color: 0xf4f4f4, transparent: true }));
+          strand.position.copy(a).lerp(b, 0.5); strand.rotation.z = Math.PI / 2; strand.scale.y = a.distanceTo(b);
+          g.fx.timed(strand, 0.14, (o, k) => { o.material.opacity = 1 - k; });
+        }
         if (this.stateT >= st && this.stateT <= st + act && !this.moveHit) {
           const sc = this.scale, f = this.facing;
           const xa = this.x + f * m.x0 * sc, xb = this.x + f * m.x1 * sc;
@@ -339,8 +361,9 @@ export class Fighter {
 
   jump(c) {
     const d = (c.held('right') ? 1 : 0) - (c.held('left') ? 1 : 0);
-    this.vy = this.hero.jump;
-    this.vx = d * this.hero.speed * 1.05;
+    const slow = this.slowT > 0 ? 0.8 : 1;
+    this.vy = this.hero.jump * slow;
+    this.vx = d * this.hero.speed * 1.05 * slow;
     this.onGround = false;
     this.state = 'air'; this.stateT = 0;
     this.crouching = false; this.blocking = false;
@@ -451,7 +474,7 @@ export class Fighter {
         if (!this.onGround || this.stunT > 50) pose = P.airHit;
         else pose = this.hitLow ? P.hitLow : P.hit;
         rate = 30; break;
-      case 'locked': pose = (Math.floor(t * 8) % 2) ? P.hit : P.airHit; rate = 25; break;
+      case 'locked': pose = this.frozen ? P.hit : (Math.floor(t * 8) % 2) ? P.hit : P.airHit; rate = this.frozen ? 3 : 25; break;
       case 'down': pose = P.down; rate = 14; break;
       case 'getup': pose = P.getup; rate = 12; break;
       case 'ko': pose = this.onGround ? P.down : P.airHit; rate = 10; break;
@@ -460,9 +483,15 @@ export class Fighter {
     }
     if (this.rig.isModel) { const [key, opts] = this.animKey(); this.rig.setAnim(key, opts); }
     this.rig.update(pose, dt, rate);
+    if (this.rig.setReach) {
+      // extending limbs: moves with `stretch` reach out during their strike, scripts set reachWant
+      const m = this.state === 'attack' && this.move;
+      if (m && m.stretch) { const s = this.hero.attackSpeed, st = m.startup * s; if (this.stateT > st * 0.5 && this.stateT < st + m.active * s + m.recovery * s * 0.4) this.reachWant = m.stretch; }
+      this.rig.setReach(this.reachWant, dt);
+    }
 
     this.root.position.set(this.x, this.y, 0);
-    const targetRot = this.facing * FACE_ANGLE;
+    const targetRot = this.faceCam ? 0 : this.facing * FACE_ANGLE;
     if (this.state === 'hit' || this.state === 'down' || this.state === 'ko' || this.state === 'locked') {
       // keep current orientation while reeling
     } else {

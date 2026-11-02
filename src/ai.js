@@ -5,7 +5,7 @@ const LEVELS = {
   normal: { think: [0.16, 0.32], block: 0.5, react: 0.18, combo: 0.55, aggro: 0.6, antiAir: 0.4 },
   hard:   { think: [0.08, 0.18], block: 0.8, react: 0.1, combo: 0.85, aggro: 0.72, antiAir: 0.7 },
 };
-const RANGED = new Set(['repulsor', 'webPull', 'lightning', 'shieldThrow', 'groundSmash', 'solarFlare', 'doomBolt']);
+const RANGED = new Set(['repulsor', 'webShot', 'lightning', 'shieldThrow', 'solarFlare', 'doomBolt', 'rootSnare', 'symbioteLash', 'quickdraw']);
 
 export class CpuInput {
   constructor(level = 'normal') {
@@ -73,7 +73,7 @@ export class CpuInput {
     if (!this.held('down')) this.release('down');
 
     const sp = me.hero.special.id;
-    if (me.ult >= 100 && opp.state !== 'down' && opp.state !== 'ko' && (dist < 3.2 || ['unibeam', 'thunderstorm', 'doomWrath', 'theVoid'].includes(me.hero.ultimate.id)) && Math.random() < 0.6) {
+    if (me.ult >= 100 && opp.state !== 'down' && opp.state !== 'ko' && (dist < 3.2 || ['unibeam', 'thunderstorm', 'doomWrath', 'voidErasure', 'ancientForest'].includes(me.hero.ultimate.id)) && Math.random() < 0.6) {
       this.press('ult'); return;
     }
     if (opp.state === 'down' || opp.state === 'getup') {
@@ -89,7 +89,7 @@ export class CpuInput {
     }
     if (dist > 1.7) {
       if ((sp === 'dashSlash') && me.specialCd <= 0 && r < 0.3) { this.press('special'); return; }
-      if ((sp === 'groundSmash' || sp === 'lightning' || sp === 'webPull') && me.specialCd <= 0 && r < 0.2) { this.press('special'); return; }
+      if ((sp === 'groundBreaker' || sp === 'lightning' || sp === 'webShot' || sp === 'rootSnare') && me.specialCd <= 0 && r < 0.2) { this.press('special'); return; }
       if (r < 0.1 * L.aggro) { this.hold(toward, 0.3); this.press('up'); this.press(Math.random() < 0.5 ? 'light' : 'heavy', 0.32); return; }
       if (r > 0.92) { this.hold(away, 0.25); return; }
       this.hold(toward, 0.25); this.release(away);
@@ -117,7 +117,7 @@ export class CpuInput {
       const reach = m.x1 * opp.scale + 0.7;
       if (dist < reach && opp.stateT < (m.startup + m.active) * opp.hero.attackSpeed) return { key: opp.hitId, low: m.height === 'low' };
     }
-    if ((opp.state === 'special' || opp.state === 'ultimate') && dist < 7) return { key: 'sp' + opp.stateT.toFixed(0) + opp.state, low: opp.hero.special.id === 'groundSmash' && opp.state === 'special' };
+    if ((opp.state === 'special' || opp.state === 'ultimate') && dist < 7) return { key: 'sp' + opp.stateT.toFixed(0) + opp.state, low: (opp.hero.special.id === 'groundBreaker' || opp.hero.special.id === 'rootSnare') && opp.state === 'special' };
     for (const p of game.projectiles) {
       if (p.owner === opp && p.alive && Math.sign(me.x - p.x) === Math.sign(p.vx) && Math.abs(me.x - p.x) < 5) return { key: p.id, low: !!p.ground };
     }

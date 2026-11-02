@@ -29,12 +29,26 @@ That opens http://localhost:8000 in your browser. ES modules don't load from `fi
 
 `Esc` pauses. You can rebind every key under **Controls**, and your bindings are saved in the browser.
 
+**PlayStation controller** (or any controller with the standard layout): controller 1 plays as Player 1 and controller 2 as Player 2. Connect it before or after loading the page, then press a button.
+
+| Action | Button |
+|--------|--------|
+| Normal hit | □ Square |
+| Stronger hit | △ Triangle |
+| Special | L1 or R1 |
+| Ultimate | L2 or R2 |
+| Jump / confirm in menus | ✕ Cross |
+| Block (hold) / back in menus | ○ Circle |
+| Move / crouch | D-pad or left stick |
+| Pause | Options |
+
 ## How fighting works
 
 - **Light** chains up to 3 hits (jab → cross → kick). **Heavy** is slower and hits harder.
 - **Crouch + Light** is a low sweep that knocks the opponent down. **Crouch + Heavy** is an uppercut launcher.
 - Attacking in the air does a jump-in. Jump-ins and some heavies are *overheads*: block them standing, not crouching.
-- **Block** cuts damage down to chip damage. Low attacks and Hulk's shockwave must be blocked crouching.
+- **Block** cuts damage down to chip damage. Low attacks, Hulk's Ground Breaker and Groot's Root Snare must be blocked crouching.
+- Some specials leave a status: **rooted** (can't walk or jump, can still attack and block) and **slowed** (half walk speed, lower jumps). After being rooted you're immune to roots for 2 seconds, so they can't be chained.
 - Crouching ducks under high punches.
 - A **Special** costs no meter but has a cooldown (the blue bar). Specials can cancel a light attack that hits.
 - The **Ultimate** meter (gold) fills as you deal and take damage. When it's full, press Ultimate for a cinematic super move.
@@ -43,14 +57,19 @@ That opens http://localhost:8000 in your browser. ES modules don't load from `fi
 
 | Hero | Special | Ultimate | Trait |
 |------|---------|----------|-------|
-| Spider-Man | Web Pull: yanks the foe in | Web Barrage: web lock + combo | Double jump |
+| Spider-Man | Web Shot: pins the foe in place, then slows them | Web-Slinging Takedown: swings around the foe on web lines, then a dive-kick slam | Double jump |
 | Iron Man | Repulsor Blast: fast projectile | Unibeam: full-screen beam | Hover (hold Jump while falling) |
 | Thor | Lightning Strike: bolt from the sky | God of Thunder: lightning storm | Hammer heavy is an overhead |
-| Hulk | Ground Smash: low shockwave | Hulk Smash: leaping slam | Super armor on heavies, most HP |
+| Hulk | Ground Breaker: local shockwave that staggers and slows | Hulk Smash: leap, haymakers, then a slam whose shockwave crosses the arena | Super armor on heavies, high HP |
 | Captain America | Shield Throw: returns like a boomerang | Avengers Assemble: shield rush combo | Shield block takes almost no chip |
 | Gamora | Godslayer Dash: dash-through slash | Blade Fury: teleporting slash flurry | Longest light attacks |
 | Doctor Doom | Mystic Bolt: crackling green sorcery blast | Science & Sorcery: binds the foe in green lightning and detonates | Force field: half chip damage when blocking |
-| Sentry | Solar Flare: heavy golden blast | The Void: turns into his dark side, and shadow tendrils seize and slam the foe | Triple jump (flight) |
+| Sentry | Golden Energy Blast: concentrated golden projectile | The Void — Shadow Erasure: the arena dims, shadow spreads across the floor and the foe is turned to shadow, dissolved and returned | Triple jump (flight) |
+| Groot | Root Snare: roots race along the floor and bind the foe | I Am Groot — Ancient Forest: grows giant, roots erupt around the foe, a long-reach strike, then a root shockwave | Branch arms reach furthest; regrows to half health out of combat; most HP |
+| Venom | Symbiote Lash: medium-range tendril strike | Symbiote Overdrive: swells into a monster for claws and tendril sweeps, then a slam | Heaviest hits of the fast fighters |
+| Deadpool | Quickdraw: two quick pistol shots | Merc with a Mouth: katana and kick flurry, a word to the audience, then a finisher | Fastest attacks; healing factor to half health out of combat |
+
+Normal hit is Light, stronger hit is Heavy. Every ultimate needs a full meter, empties it, can be blocked (chip damage only) and avoided, and hands control back when it ends.
 
 **Arenas:** Tower Rooftop (a rainy night city with lightning), Knowhere Outpost (a mining deck before a giant skull station) and Rainbow Bridge (a crystal bridge before the golden city).
 
@@ -59,7 +78,7 @@ That opens http://localhost:8000 in your browser. ES modules don't load from `fi
 - **Bodies:** each hero is a skinned 3D body with sculpted muscles and a unique physique, so joints bend smoothly.
 - **Costumes:** painted color plus normal maps for fabric, armor plating, scale mail, rocky skin and veins.
 - **Faces:** the expressions change with the fight: focused, gritting teeth, shouting on attacks, wincing when hit, dazed when knocked down, smiling or laughing on a win, and a roar during ultimates. Eyes blink and track the opponent.
-- **Capes:** Thor's and Sentry's capes are simulated cloth.
+- **Capes:** Thor's and Sentry's capes are simulated cloth on the built-in heroes.
 - **Cinematics:** round 1 opens with face close-ups and name cards, and ultimates zoom in on the hero's face.
 - **Rendering:** MSAA anti-aliasing, bloom, image-based lighting and light color grading. If the game runs slowly, set Graphics quality to Medium or Low in Settings.
 

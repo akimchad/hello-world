@@ -1,7 +1,7 @@
 {
   "models": {
     "spiderman": {
-      "url": "models/spiderman/extracted/spiderman.fbx",
+      "url": "models/spiderman-2026/spiderman.glb",
       "autorig": true
     },
     "ironman": {
@@ -18,22 +18,31 @@
     "thor": {
       "url": "models/10-thor-mua/source/10_thor.fbx",
       "clips": {
-        "idle": "idle", "block": "blocking",
-        "punch": "attack_light1", "punch2": "attack_light2", "kick": "attack_light3",
-        "heavy": "attack_heavy1", "uppercut": "attack_popup1", "sweep": "attack_trip1", "special": "power_2"
+        "idle": "idle",
+        "block": "blocking",
+        "punch": "attack_light1",
+        "punch2": "attack_light2",
+        "kick": "attack_light3",
+        "heavy": "attack_heavy1",
+        "uppercut": "attack_popup1",
+        "sweep": "attack_trip1",
+        "special": "power_2"
       }
     },
     "hulk": {
-      "url": "models/source/hulk.mkm",
-      "autorig": true,
-      "weldedArms": true
+      "url": "models/hulk-2026/hulk.glb"
     },
     "cap": {
       "url": "models/07-captain-america-mua/source/07_captamerica.fbx",
       "clips": {
-        "idle": "idle", "block": "blocking",
-        "punch": "attack_light1", "punch2": "attack_light2", "kick": "attack_light3",
-        "heavy": "attack_heavy1", "uppercut": "attack_knockback1", "special": "power_1"
+        "idle": "idle",
+        "block": "blocking",
+        "punch": "attack_light1",
+        "punch2": "attack_light2",
+        "kick": "attack_light3",
+        "heavy": "attack_heavy1",
+        "uppercut": "attack_knockback1",
+        "special": "power_1"
       }
     },
     "gamora": {
@@ -49,6 +58,15 @@
         "specularMap": "Sentry_Current_Spec.png",
         "emissiveMap": "Sentry_Current_Emiss.png"
       }
+    },
+    "groot": {
+      "url": "models/groot/groot.glb"
+    },
+    "venom": {
+      "url": "models/venom/venom.glb"
+    },
+    "deadpool": {
+      "url": "models/deadpool/deadpool.glb"
     }
   }
 }

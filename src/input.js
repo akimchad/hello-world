@@ -38,6 +38,7 @@ export function keyLabel(code) {
 export class Keyboard {
   constructor() {
     this.down = new Set();
+    this.padDown = new Set(); // keys currently held through a gamepad
     this.listeners = [];
     this.captureGameKeys = false;
     this.gameCodes = new Set();
@@ -56,7 +57,53 @@ export class Keyboard {
     this.gameCodes = new Set();
     for (const p of ['p1', 'p2']) for (const a of ACTIONS) for (const c of bindings[p][a]) if (c) this.gameCodes.add(c);
   }
-  isDown(code) { return this.down.has(code); }
+  isDown(code) { return this.down.has(code) || this.padDown.has(code); }
+}
+
+// PlayStation (and other "standard" layout) controllers. Pad 1 plays as player 1, pad 2 as
+// player 2: buttons press that player's bound keys, so menus, character select, pause and
+// fights all work with no separate gamepad code paths.
+//   Square = normal hit, Triangle = stronger hit, L1/R1 = special, L2/R2 = ultimate,
+//   Cross = jump (confirm in menus), Circle = block (back in menus), Options = pause,
+//   D-pad / left stick = move.
+export class Gamepads {
+  constructor(keyboard, getBindings, inMenu) {
+    this.kb = keyboard;
+    this.getBindings = getBindings;
+    this.inMenu = inMenu;
+    this.prev = [new Set(), new Set()];
+    this.connected = 0;
+  }
+  poll() {
+    const pads = navigator.getGamepads ? [...navigator.getGamepads()].filter((p) => p && p.connected) : [];
+    this.connected = pads.length;
+    const menu = this.inMenu();
+    for (let i = 0; i < 2; i++) {
+      const pad = pads[i], now = new Set();
+      if (pad) {
+        const b = this.getBindings()['p' + (i + 1)];
+        const key = (a) => b[a] && (b[a][0] || b[a][1]);
+        const on = (n) => !!pad.buttons[n] && (pad.buttons[n].pressed || pad.buttons[n].value > 0.5);
+        const ax = pad.axes[0] || 0, ay = pad.axes[1] || 0;
+        if (on(14) || ax < -0.5) now.add(key('left'));
+        if (on(15) || ax > 0.5) now.add(key('right'));
+        if (on(12) || ay < -0.6) now.add(key('up'));
+        if (on(13) || ay > 0.6) now.add(key('down'));
+        if (on(2)) now.add(key('light'));
+        if (on(3)) now.add(key('heavy'));
+        if (on(4) || on(5)) now.add(key('special'));
+        if (on(6) || on(7)) now.add(key('ult'));
+        if (menu) { if (on(0)) now.add('Enter'); if (on(1)) now.add('Escape'); }
+        else { if (on(0)) now.add(key('up')); if (on(1)) now.add(key('block')); }
+        if (on(9)) now.add('Escape');
+      }
+      now.delete(null); now.delete(undefined);
+      const prev = this.prev[i];
+      for (const c of now) if (!prev.has(c)) { this.kb.padDown.add(c); this.kb.onPress && this.kb.onPress(c); }
+      for (const c of prev) if (!now.has(c)) this.kb.padDown.delete(c);
+      this.prev[i] = now;
+    }
+  }
 }
 
 // A human player's view of the keyboard

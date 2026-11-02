@@ -39,6 +39,24 @@ export class Effects {
     this.parts = [];
     for (let i = 0; i < MAX_P; i++) this.parts.push({ alive: false, p: new THREE.Vector3(), v: new THREE.Vector3(), c: new THREE.Color(), life: 0, max: 1, size: 1, g: 0, drag: 0, grow: 0 });
     this.next = 0;
+    // a second, normally blended pool for dark smoke and shadow (additive can't darken)
+    this.dark = { pos: new Float32Array(MAX_P * 3), col: new Float32Array(MAX_P * 3), size: new Float32Array(MAX_P), alpha: new Float32Array(MAX_P), parts: [], next: 0 };
+    const dg = new THREE.BufferGeometry();
+    dg.setAttribute('position', new THREE.BufferAttribute(this.dark.pos, 3).setUsage(THREE.DynamicDrawUsage));
+    dg.setAttribute('color', new THREE.BufferAttribute(this.dark.col, 3).setUsage(THREE.DynamicDrawUsage));
+    dg.setAttribute('size', new THREE.BufferAttribute(this.dark.size, 1).setUsage(THREE.DynamicDrawUsage));
+    dg.setAttribute('alpha', new THREE.BufferAttribute(this.dark.alpha, 1).setUsage(THREE.DynamicDrawUsage));
+    const dm = pm.clone();
+    dm.fragmentShader = `
+        varying vec3 vC; varying float vA;
+        void main(){ vec2 d = gl_PointCoord - 0.5; float r = length(d); if(r>0.5) discard;
+          gl_FragColor = vec4(vC, smoothstep(0.5, 0.1, r) * vA * 0.85); }`;
+    dm.blending = THREE.NormalBlending;
+    dm.uniforms = pm.uniforms;
+    this.darkPoints = new THREE.Points(dg, dm);
+    this.darkPoints.frustumCulled = false;
+    this.group.add(this.darkPoints);
+    for (let i = 0; i < MAX_P; i++) this.dark.parts.push({ alive: false, p: new THREE.Vector3(), v: new THREE.Vector3(), c: new THREE.Color(), life: 0, max: 1, size: 1, g: 0, drag: 0, grow: 0 });
     this.items = []; // rings, bolts, misc meshes with update fns
     this.lights = [];
     for (let i = 0; i < 4; i++) {
@@ -55,9 +73,10 @@ export class Effects {
     const n = o.count ?? 12;
     const col = new THREE.Color(o.color ?? 0xffffff);
     const col2 = o.color2 !== undefined ? new THREE.Color(o.color2) : null;
+    const pool = o.dark ? this.dark : this;
     for (let i = 0; i < n; i++) {
-      const q = this.parts[this.next];
-      this.next = (this.next + 1) % MAX_P;
+      const q = pool.parts[pool.next];
+      pool.next = (pool.next + 1) % MAX_P;
       q.alive = true;
       q.p.copy(pos);
       if (o.jitter) q.p.add(new THREE.Vector3((Math.random() - 0.5) * o.jitter, (Math.random() - 0.5) * o.jitter, (Math.random() - 0.5) * o.jitter * 0.5));
@@ -160,29 +179,37 @@ export class Effects {
   }
 
   update(dt) {
-    const P = this.parts;
-    for (let i = 0; i < MAX_P; i++) {
-      const q = P[i];
-      const i3 = i * 3;
-      if (!q.alive) { this.pAlpha[i] = 0; continue; }
-      q.life -= dt;
-      if (q.life <= 0) { q.alive = false; this.pAlpha[i] = 0; continue; }
-      q.v.multiplyScalar(Math.max(0, 1 - q.drag * dt));
-      q.v.y += q.g * dt;
-      q.p.addScaledVector(q.v, dt);
-      const k = q.life / q.max;
-      this.pPos[i3] = q.p.x; this.pPos[i3 + 1] = q.p.y; this.pPos[i3 + 2] = q.p.z;
-      this.pCol[i3] = q.c.r; this.pCol[i3 + 1] = q.c.g; this.pCol[i3 + 2] = q.c.b;
-      this.pSize[i] = q.size * (q.grow ? (1 + (1 - k) * q.grow * 2) : (0.4 + 0.6 * k));
-      this.pAlpha[i] = Math.min(1, k * 1.6);
-    }
-    const g = this.points.geometry;
-    g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true;
-    g.attributes.size.needsUpdate = true; g.attributes.alpha.needsUpdate = true;
+    const step = (P, pos, col, size, alpha, points) => {
+      for (let i = 0; i < MAX_P; i++) {
+        const q = P[i];
+        const i3 = i * 3;
+        if (!q.alive) { alpha[i] = 0; continue; }
+        q.life -= dt;
+        if (q.life <= 0) { q.alive = false; alpha[i] = 0; continue; }
+        q.v.multiplyScalar(Math.max(0, 1 - q.drag * dt));
+        q.v.y += q.g * dt;
+        q.p.addScaledVector(q.v, dt);
+        const k = q.life / q.max;
+        pos[i3] = q.p.x; pos[i3 + 1] = q.p.y; pos[i3 + 2] = q.p.z;
+        col[i3] = q.c.r; col[i3 + 1] = q.c.g; col[i3 + 2] = q.c.b;
+        size[i] = q.size * (q.grow ? (1 + (1 - k) * q.grow * 2) : (0.4 + 0.6 * k));
+        alpha[i] = Math.min(1, k * 1.6);
+      }
+      const g = points.geometry;
+      g.attributes.position.needsUpdate = true; g.attributes.color.needsUpdate = true;
+      g.attributes.size.needsUpdate = true; g.attributes.alpha.needsUpdate = true;
+    };
+    step(this.parts, this.pPos, this.pCol, this.pSize, this.pAlpha, this.points);
+    const D = this.dark;
+    step(D.parts, D.pos, D.col, D.size, D.alpha, this.darkPoints);
 
     this.items = this.items.filter((it) => {
       const keep = it.update(dt);
-      if (!keep && it.mesh) { this.group.remove(it.mesh); it.mesh.geometry && it.mesh.geometry.dispose(); if (it.mesh.material && it.mesh.material.dispose) it.mesh.material.dispose(); }
+      if (!keep && it.mesh) {
+        this.group.remove(it.mesh);
+        if (it.mesh.userData.disposeTree) it.mesh.traverse((o) => { o.geometry && o.geometry.dispose(); if (o.material && o.material.dispose) o.material.dispose(); });
+        else { it.mesh.geometry && it.mesh.geometry.dispose(); if (it.mesh.material && it.mesh.material.dispose) it.mesh.material.dispose(); }
+      }
       return keep;
     });
     for (const L of this.lights) {
@@ -193,6 +220,7 @@ export class Effects {
 
   clear() {
     for (const q of this.parts) q.alive = false;
+    for (const q of this.dark.parts) q.alive = false;
     for (const it of this.items) { if (it.mesh) this.group.remove(it.mesh); }
     // bolts remove themselves via update; force-finish them
     for (let i = 0; i < 5; i++) this.items = this.items.filter((it) => it.update(10));

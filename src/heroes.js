@@ -672,14 +672,72 @@ function buildSentry(alt) {
 }
 
 // ------------------------------------------------------------------
+// GROOT, VENOM, DEADPOOL — simple built-in looks used when their imported
+// models (assets/models, local only) aren't available
+// ------------------------------------------------------------------
+function buildGroot(alt) {
+  const BARK = alt ? '#4a4038' : '#5b3f24', DARK = alt ? '#2a241f' : '#33220f', K = 'groot' + (alt ? 'A' : '');
+  const bark = (key, M, size = 512) => partMaterial(key, { rough: 0.95, sheen: 0.2, sheenColor: 0x9ab070, strength: 6, w: size, h: size,
+    paint: (g, w, h) => { g.fillStyle = BARK; g.fillRect(0, 0, w, h); for (let i = 0; i < w; i += 7) { g.fillStyle = (i / 7) % 3 ? DARK : '#6e5030'; g.fillRect(i + Math.sin(i) * 3, 0, 2 + (i % 3), h); } overlayNoise(g, w, h, noiseCanvas(128, 24, 61, 3), 0.25); },
+    height: (g, w, h) => { for (let i = 0; i < w; i += 7) { g.fillStyle = (i / 7) % 2 ? '#3a3a3a' : '#c0c0c0'; g.fillRect(i, 0, 3, h); } } });
+  return buildHeroRig({
+    dims: { shoulderW: 0.28, chestK: 1.1, waistK: 0.75, hipK: 0.85, armK: 0.82, legK: 0.85, muscle: 0.7, depthK: 0.95, headR: 0.118, upper: 0.36, fore: 0.34, thigh: 0.48, shin: 0.47 },
+    materials: (d) => ({ torso: bark(K + 't', tMap, 1024), neck: bark(K + 'n', (w, h) => mapper(w, h, 0, 1), 256), arm: () => bark(K + 'a', aMap(d)), leg: () => bark(K + 'l', lMap(d)),
+      hand: () => cloth(0x4e351d, 0.95), foot: () => cloth(0x4e351d, 0.95), sole: cloth(0x2a1c0e, 0.95) }),
+    head: { type: 'skin', key: K, skin: 0x6b4a2a, iris: 0x3a2410, brows: 0x2a1a0c, lip: 0x4a3018, jaw: 1.2, chin: 1.1, brow: 1.3, lashes: 0 },
+    decorate(rig, { J }) {
+      const leaf = new THREE.MeshStandardMaterial({ color: 0x4f8a2a, roughness: 0.7, side: THREE.DoubleSide });
+      for (let i = 0; i < 9; i++) mesh(new THREE.PlaneGeometry(0.06, 0.1), leaf, J.head, Math.sin(i * 2.1) * 0.1, 0.2 + (i % 3) * 0.03, Math.cos(i * 2.1) * 0.08 - 0.03, 0.4, i, 0.3);
+      rig.anchors = { cast: J.rHand, cast2: J.lHand };
+    },
+  });
+}
+
+function buildVenom(alt) {
+  const BLACK = alt ? '#5a0a10' : '#08080c', K = 'venom' + (alt ? 'A' : '');
+  const goo = (key, M, emblem, size = 512) => partMaterial(key, { rough: 0.18, clearcoat: 1, sheen: 0.4, sheenColor: 0x5a6aa0, strength: 3, w: size, h: size,
+    paint: (g, w, h) => { const m = M(w, h); g.fillStyle = BLACK; g.fillRect(0, 0, w, h); overlayNoise(g, w, h, noiseCanvas(128, 16, 71, 3), 0.15); emblem && emblem(g, m); },
+    height: (g, w, h) => { veins(g, w, h, 71, '#b0b0b0', 14, 3); } });
+  return buildHeroRig({
+    dims: { shoulderW: 0.3, chestK: 1.35, waistK: 0.95, hipK: 1.0, armK: 1.3, legK: 1.15, muscle: 1.8, depthK: 1.15, headR: 0.12, handK: 1.3, footK: 1.15, upper: 0.32, fore: 0.3 },
+    materials: (d) => ({ torso: goo(K + 't', tMap, (g, m) => { bigSpider(g, m, m.X(0), m.Y(0.43), 130, '#f2f2f2'); bigSpider(g, m, 0, m.Y(0.4), 140, '#f2f2f2', true); bigSpider(g, m, m.w, m.Y(0.4), 140, '#f2f2f2', true); }, 1024),
+      neck: goo(K + 'n', (w, h) => mapper(w, h, 0, 1), null, 256), arm: () => goo(K + 'a', aMap(d)), leg: () => goo(K + 'l', lMap(d)),
+      hand: () => metal(0x0a0a10, 0.2, 0.1, { cc: 1 }), foot: () => metal(0x0a0a10, 0.2, 0.1, { cc: 1 }), sole: cloth(0x050508, 0.6) }),
+    head: { type: 'lens', key: K, skin: alt ? 0x5a0a10 : 0x08080c, nose: 0.2, socket: 0, lips: 0.1, brow: 0.6, cheek: 0.8, chin: 1.1, rough: 0.2, sheen: 0.4, folds: 0, hollow: 0, lensFrame: '#e8e8e8', lensSize: 0.8,
+      paint: (g, w, h) => { g.fillStyle = BLACK; g.fillRect(0, 0, w, h); } },
+    decorate(rig, { J }) { rig.anchors = { cast: J.rHand, cast2: J.lHand }; },
+  });
+}
+
+function buildDeadpool(alt) {
+  const RED = alt ? '#1f2a44' : '#9a0c14', BLACK = '#0b0b0e', K = 'deadpool' + (alt ? 'A' : '');
+  const suit = (key, M, dark, size = 512) => partMaterial(key, { rough: 0.6, sheen: 0.35, sheenColor: 0xffa0a0, strength: 3.5, w: size, h: size,
+    paint: (g, w, h) => { const m = M(w, h); g.fillStyle = RED; g.fillRect(0, 0, w, h); overlayNoise(g, w, h, noiseCanvas(128, 40, 81, 2), 0.15); regions(g, w, h, m, (th, y) => (dark(th, y) ? rgb(BLACK) : null)); },
+    height: (g, w, h) => { scales(g, w, h, '#a0a0a0', 7); } });
+  return buildHeroRig({
+    dims: { shoulderW: 0.25, chestK: 1.06, waistK: 0.9, hipK: 0.95, armK: 1.0, legK: 1.0, muscle: 1.15, headR: 0.113 },
+    materials: (d) => ({ torso: suit(K + 't', tMap, (th) => Math.abs(Math.abs(th) - 1.57) < 0.35, 1024), neck: suit(K + 'n', (w, h) => mapper(w, h, 0, 1), () => false, 256),
+      arm: () => suit(K + 'a', aMap(d), (th) => Math.abs(th) < 0.5), leg: () => suit(K + 'l', lMap(d), (th) => Math.abs(Math.abs(th) - 1.57) < 0.3),
+      hand: () => cloth(0x0b0b0e, 0.6), foot: () => cloth(0x0b0b0e, 0.6), sole: cloth(0x050505, 0.9) }),
+    head: { type: 'lens', key: K, skin: alt ? 0x1f2a44 : 0x9a0c14, nose: 0.3, socket: 0, lips: 0.1, brow: 0.4, cheek: 0.6, chin: 0.9, rough: 0.55, sheen: 0.4, folds: 0, hollow: 0, lensFrame: '#0b0b0e', lensSize: 0.66,
+      paint: (g, w, h, H) => { g.fillStyle = RED; g.fillRect(0, 0, w, h); for (const s of [-1, 1]) { const [cx, cy] = H.at(s * 0.35, 0.05, 0.92); g.fillStyle = BLACK; g.beginPath(); g.ellipse(cx, cy, 70, 55, 0, 0, TAU); g.fill(); } } },
+    decorate(rig, { J, d }) {
+      const steel = metal(0xc8ccd4, 0.2, 0.95), grip = cloth(0x111111, 0.7);
+      for (const s of [-1, 1]) { const blade = mesh(new THREE.BoxGeometry(0.03, 0.8, 0.008), steel, J.chest, s * 0.1, 0.25, -0.17 * d.depthK, 0, 0, s * 0.35); mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.2, 8), grip, blade, 0, 0.5, 0); }
+      rig.anchors = { cast: J.rHand, cast2: J.lHand };
+    },
+  });
+}
+
+// ------------------------------------------------------------------
 // Roster definitions (gameplay)
 // ------------------------------------------------------------------
 export const HEROES = [
   { id: 'spiderman', name: 'Spider-Man', title: 'Friendly Neighborhood Hero', color: '#e2232b', build: buildSpider,
     hp: 95, speed: 4.7, jump: 11.8, airJumps: 1, power: 0.95, defense: 1.0, attackSpeed: 0.9, weight: 0.9,
     stats: { Power: 3, Speed: 5, Defense: 2, Range: 3 },
-    special: { id: 'webPull', name: 'Web Pull', cd: 3.0, desc: 'Web line that yanks the foe in close' },
-    ultimate: { id: 'webBarrage', name: 'Web Barrage', desc: 'Web-wrap and a flurry of acrobatic strikes' }, passive: 'Double jump' },
+    special: { id: 'webShot', name: 'Web Shot', cd: 2.6, desc: 'Webbing that pins the foe in place, then slows them' },
+    ultimate: { id: 'webTakedown', name: 'Web-Slinging Takedown', desc: 'Swings around the foe on web lines, strikes from every side, then a web-assisted slam' }, passive: 'Double jump' },
   { id: 'ironman', name: 'Iron Man', title: 'Armored Avenger', color: '#d6a23a', build: buildIron,
     hp: 100, speed: 3.9, jump: 9.8, airJumps: 0, power: 1.0, defense: 0.95, attackSpeed: 1.0, weight: 1.05,
     stats: { Power: 3, Speed: 3, Defense: 3, Range: 5 },
@@ -693,8 +751,8 @@ export const HEROES = [
   { id: 'hulk', name: 'Hulk', title: 'The Strongest There Is', color: '#4e8a2b', build: buildHulk,
     hp: 130, speed: 3.3, jump: 10.2, airJumps: 0, power: 1.24, defense: 0.86, attackSpeed: 1.22, weight: 1.6,
     stats: { Power: 5, Speed: 2, Defense: 5, Range: 2 },
-    special: { id: 'groundSmash', name: 'Ground Smash', cd: 3.4, desc: 'Shockwave along the floor (block low!)' },
-    ultimate: { id: 'hulkSmash', name: 'Hulk Smash', desc: 'Leaps across the arena and slams down' }, passive: 'Armor: no flinch from light hits while attacking' },
+    special: { id: 'groundBreaker', name: 'Ground Breaker', cd: 3.4, desc: 'Slams the floor: a local shockwave that staggers and slows (block low!)' },
+    ultimate: { id: 'hulkSmash', name: 'Hulk Smash', desc: 'Leaps in, pounds the foe, then a massive slam sends a shockwave across the arena' }, passive: 'Armor: no flinch from light hits while attacking' },
   { id: 'cap', name: 'Captain America', title: 'The First Avenger', color: '#3a6bd8', build: buildCap,
     hp: 105, speed: 4.2, jump: 10.2, airJumps: 0, power: 1.0, defense: 1.0, attackSpeed: 0.97, weight: 1.05,
     stats: { Power: 3, Speed: 4, Defense: 4, Range: 3 },
@@ -713,8 +771,23 @@ export const HEROES = [
   { id: 'sentry', name: 'Sentry', title: 'Power of a Million Suns', color: '#f0aa18', build: buildSentry,
     hp: 105, speed: 4.6, jump: 11.2, airJumps: 2, power: 1.12, defense: 0.95, attackSpeed: 0.92, weight: 1.0,
     stats: { Power: 5, Speed: 4, Defense: 3, Range: 4 },
-    special: { id: 'solarFlare', name: 'Solar Flare', cd: 2.6, desc: 'Heavy golden energy blast' },
-    ultimate: { id: 'theVoid', name: 'The Void', desc: 'Becomes his dark side: shadow tendrils seize and smash the foe' }, passive: 'Flight: triple jump' },
+    special: { id: 'solarFlare', name: 'Golden Energy Blast', cd: 2.6, desc: 'A concentrated burst of golden energy' },
+    ultimate: { id: 'voidErasure', name: 'The Void — Shadow Erasure', desc: 'Becomes the Void: the arena darkens and the foe is turned to shadow and erased, then returns' }, passive: 'Flight: triple jump' },
+  { id: 'groot', name: 'Groot', title: 'I Am Groot', color: '#7a5a2e', build: buildGroot,
+    hp: 125, speed: 3.4, jump: 9.6, airJumps: 0, power: 1.05, defense: 0.9, attackSpeed: 1.1, weight: 1.4, regen: true,
+    stats: { Power: 4, Speed: 2, Defense: 5, Range: 5 },
+    special: { id: 'rootSnare', name: 'Root Snare', cd: 3.2, desc: 'Roots race along the floor and bind the foe in place' },
+    ultimate: { id: 'ancientForest', name: 'I Am Groot: Ancient Forest', desc: 'Grows to giant size, traps the foe in a forest of roots, then a root shockwave' }, passive: 'Regrowth: heals back to half health out of combat; branch arms reach further' },
+  { id: 'venom', name: 'Venom', title: 'Lethal Protector', color: '#3a3f5c', build: buildVenom,
+    hp: 115, speed: 4.3, jump: 10.6, airJumps: 0, power: 1.12, defense: 0.95, attackSpeed: 0.95, weight: 1.25,
+    stats: { Power: 5, Speed: 4, Defense: 3, Range: 4 },
+    special: { id: 'symbioteLash', name: 'Symbiote Lash', cd: 2.2, desc: 'A tendril lashes out at medium range' },
+    ultimate: { id: 'symbioteOverdrive', name: 'Symbiote Overdrive', desc: 'Swells into a monstrous form for a storm of claws and tendrils, then a crushing slam' }, passive: 'Symbiote strength: heavier hits than Spider-Man' },
+  { id: 'deadpool', name: 'Deadpool', title: 'Merc with a Mouth', color: '#b3121c', build: buildDeadpool,
+    hp: 95, speed: 4.8, jump: 11, airJumps: 0, power: 0.98, defense: 1.05, attackSpeed: 0.8, weight: 0.95, regen: true,
+    stats: { Power: 3, Speed: 5, Defense: 2, Range: 4 },
+    special: { id: 'quickdraw', name: 'Quickdraw', cd: 1.6, desc: 'Two fast pistol shots' },
+    ultimate: { id: 'mercMouth', name: 'Merc with a Mouth', desc: 'A ridiculous katana and acrobatics combo — with a word for the audience' }, passive: 'Healing factor: heals back to half health out of combat' },
 ];
 
 export function heroById(id) { return HEROES.find((h) => h.id === id) || HEROES[0]; }

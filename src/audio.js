@@ -156,6 +156,30 @@ export class Audio {
         for (let i = 0; i < 3; i++) this.tone(t, { type: 'sawtooth', f0: 180 + i * 90, f1: 140 + i * 60, dur: 1.3, gain: 0.12 * v, attack: 0.05, detune: i * 7 });
         this.noiseHit(t, { dur: 1.2, type: 'bandpass', f0: 1800, f1: 900, q: 0.8, gain: 0.3 * v, attack: 0.05 });
         break;
+      case 'void': // a hollow, inhaling swell that collapses into a sub drop
+        this.noiseHit(t, { dur: 1.1, type: 'bandpass', f0: 3000, f1: 180, q: 3, gain: 0.35 * v, attack: 0.8 });
+        this.tone(t, { type: 'sine', f0: 55, f1: 38, dur: 1.6, gain: 0.7 * v, attack: 0.5 });
+        this.tone(t, { type: 'sawtooth', f0: 41, f1: 36, dur: 1.4, gain: 0.12 * v, attack: 0.6, detune: 9 });
+        this.tone(t + 1.0, { f0: 90, f1: 22, dur: 0.9, gain: 0.8 * v });
+        break;
+      case 'erase': // a dry, crumbling hiss
+        this.noiseHit(t, { dur: 0.9, type: 'highpass', f0: 2500, f1: 7000, gain: 0.3 * v, attack: 0.2 });
+        this.noiseHit(t, { dur: 0.7, type: 'bandpass', f0: 900, f1: 200, q: 1.5, gain: 0.25 * v, attack: 0.1 });
+        break;
+      case 'gun':
+        this.noiseHit(t, { dur: 0.09, f0: 6000, f1: 900, gain: 0.75 * v, attack: 0.001 });
+        this.tone(t, { type: 'square', f0: 260, f1: 60, dur: 0.08, gain: 0.3 * v });
+        this.noiseHit(t + 0.02, { dur: 0.35, type: 'bandpass', f0: 1200, f1: 300, q: 0.7, gain: 0.18 * v });
+        break;
+      case 'wood': // creaking, cracking timber
+        this.tone(t, { type: 'sawtooth', f0: 70, f1: 130, dur: 0.35, gain: 0.25 * v, attack: 0.05 });
+        for (let i = 0; i < 4; i++) this.noiseHit(t + i * 0.06 + Math.random() * 0.03, { dur: 0.05, type: 'bandpass', f0: 1800 + Math.random() * 1500, q: 4, gain: 0.35 * v });
+        this.noiseHit(t, { dur: 0.3, f0: 500, f1: 120, gain: 0.35 * v });
+        break;
+      case 'squelch': // wet symbiote stretch
+        this.noiseHit(t, { dur: 0.22, type: 'bandpass', f0: 300, f1: 1400, q: 6, gain: 0.5 * v, attack: 0.02 });
+        this.tone(t, { type: 'sine', f0: 140, f1: 320, dur: 0.18, gain: 0.3 * v });
+        break;
       case 'ultstart':
         this.tone(t, { type: 'sawtooth', f0: 80, f1: 600, dur: 0.6, gain: 0.25 * v, attack: 0.02 });
         this.noiseHit(t, { dur: 0.6, type: 'bandpass', f0: 300, f1: 4000, q: 1, gain: 0.35 * v, attack: 0.4 });
@@ -257,7 +281,8 @@ export class Audio {
     const sampled = Object.keys(this.buffers).filter((k) => k === 'grunt_' + type || k.startsWith('grunt_' + type + '_') || k === hero.id + '_' + type);
     if (sampled.length) { this.playBuffer(sampled[Math.floor(Math.random() * sampled.length)], { vol, pitch: 1 + (Math.random() * 2 - 1) * 0.05 }); return; }
     void key;
-    const V = { hulk: [72, 0.9, 1], doom: [92, 0.4, 0.7], thor: [105, 0.3, 0.6], cap: [118, 0.15, 0.5], ironman: [112, 0.2, 0.5], spiderman: [135, 0.1, 0.45], sentry: [115, 0.2, 0.55], gamora: [215, 0.05, 0.4] }[hero.id] || [120, 0.2, 0.5];
+    const V = { hulk: [72, 0.9, 1], doom: [92, 0.4, 0.7], thor: [105, 0.3, 0.6], cap: [118, 0.15, 0.5], ironman: [112, 0.2, 0.5], spiderman: [135, 0.1, 0.45], sentry: [115, 0.2, 0.55], gamora: [215, 0.05, 0.4],
+      groot: [62, 0.6, 0.9], venom: [68, 1.0, 1.1], deadpool: [128, 0.15, 0.5] }[hero.id] || [120, 0.2, 0.5];
     const [base, grit, breath] = V;
     const f0 = base * (1 + (Math.random() * 2 - 1) * 0.06) * (type === 'effort' ? 1.08 : type === 'ko' ? 0.9 : 1.15);
     const dur = type === 'ko' ? 0.7 : type === 'effort' ? 0.22 : 0.26;

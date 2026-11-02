@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { HEROES, heroById } from './heroes.js';
 import { STAGES, buildArena, makeEnvironment } from './arenas.js';
 import { POSES, lerpPose, clonePose, addTo } from './rig.js';
-import { Keyboard, PlayerInput, DEFAULT_BINDINGS, ACTIONS, ACTION_LABELS, keyLabel } from './input.js';
+import { Keyboard, PlayerInput, Gamepads, DEFAULT_BINDINGS, ACTIONS, ACTION_LABELS, keyLabel } from './input.js';
 import { CpuInput } from './ai.js';
 import { Audio } from './audio.js';
 import { Match } from './game.js';
@@ -88,6 +88,7 @@ const kb = new Keyboard();
 kb.setBindings(bindings);
 const hud = new HUD();
 const humanInputs = [new PlayerInput(kb, bindings.p1), new PlayerInput(kb, bindings.p2)];
+const pads = new Gamepads(kb, () => bindings, () => app.screen !== 'fight' || app.paused || app.overlays.length > 0);
 
 const app = {
   screen: 'menu', mode: 'pvp', paused: false, overlays: [],
@@ -309,6 +310,7 @@ function goStage() {
 }
 
 // ---------------------------------------------------------------- character select
+const ROSTER_COLS = 6; // keep in step with .roster's grid columns in css/style.css
 function buildRoster() {
   const roster = $('roster');
   roster.innerHTML = '';
@@ -365,7 +367,7 @@ function refreshSelect() {
   }
 }
 function selectKey(code) {
-  const cols = 4;
+  const cols = ROSTER_COLS;
   const n = HEROES.length;
   const moveCursor = (s, d) => { if (app.locked[s]) return; app.cursor[s] = (app.cursor[s] + d + n) % n; audio.play('select'); refreshSelect(); };
   const p1 = bindings.p1, p2 = bindings.p2;
@@ -621,18 +623,23 @@ function frame(now) {
   last = now;
   fpsAcc += dt; fpsN++;
   if (fpsAcc > 1) { window.__game.fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
+  pads.poll();
   for (const h of humanInputs) h.update(dt);
   let scene, camera;
   if (match && (app.screen === 'fight' || app.screen === 'victory')) {
-    if (!app.paused && !app.overlays.length) match.update(dt);
+    if (!app.paused && !app.overlays.length && !window.__game.manual) match.update(dt);
     scene = match.scene; camera = match.camera;
-    renderer.toneMappingExposure = match.arena.exposure || 1;
+    renderer.toneMappingExposure = (match.arena.exposure || 1) * (match.exposureMul ?? 1);
   } else if (showcase) {
     showcase.update(dt);
     scene = showcase.scene; camera = showcase.camera;
     renderer.toneMappingExposure = showcase.arena.exposure || 1;
   }
   if (!scene) return;
+  draw(scene, camera, dt, now);
+}
+
+function draw(scene, camera, dt, now) {
   grade.uniforms.time.value = (now * 0.001) % 100;
   cine.update(dt);
   if (settings.quality === 'high' || settings.quality === 'ultra') {
@@ -668,6 +675,17 @@ window.__game.inspect = (heroIndex, framing = 'face', side = 0, expr = null, tur
 window.__game.freezeCelebrate = (v) => { showcase.celebrate = [v, v]; };
 
 window.__game.THREE = THREE;
+window.__game.pads = pads;
+// debug/test hook: step the running match by hand (independent of the page's frame rate) and
+// draw one frame through the full pipeline. __game.manual = true stops the loop from updating it.
+window.__game.step = (n = 1, dt = 1 / 60) => {
+  if (!match) return null;
+  window.__game.manual = true;
+  for (let i = 0; i < n; i++) { for (const h of humanInputs) h.update(dt); match.update(dt); }
+  renderer.toneMappingExposure = (match.arena.exposure || 1) * (match.exposureMul ?? 1);
+  draw(match.scene, match.camera, dt, performance.now());
+  return match;
+};
 window.__game.registerModel = (id, gltf) => { registerModel(id, gltf); installModelBuilders(HEROES.filter((h) => h.id === id)); };
 // debug/test hook: __game.quickMatch([p1HeroIndex, p2HeroIndex], stageIndex, [cpu1, cpu2])
 window.__game.quickMatch = (picks = [0, 1], stage = 0, cpu = [true, true]) => {

@@ -25,7 +25,7 @@ const DEFAULT_MODELS = {
   sentry: ['assets/models/sentry_realistic.glb', 'assets/models/sentry.glb'],
 };
 // standing height in metres: sets the model scale, hurtbox and attack reach
-const HEIGHTS = { hulk: 2.55, doom: 1.96, thor: 1.95, ironman: 1.92, sentry: 1.92, cap: 1.88, gamora: 1.78, spiderman: 1.76 };
+const HEIGHTS = { hulk: 2.55, groot: 2.5, venom: 2.2, doom: 1.96, thor: 1.95, ironman: 1.92, sentry: 1.92, cap: 1.88, deadpool: 1.84, gamora: 1.78, spiderman: 1.76 };
 
 // game animation keys → clip-name search lists (first match wins)
 const CHAINS = {
@@ -190,8 +190,47 @@ function canonBone(name) {
   if (m) return m[1] && LIMB[m[2]] ? (m[1] === 'l' ? 'left' : 'right') + LIMB[m[2]] : TRUNK[m[2]] || m[2] || k;
   m = k.match(/^(clavicle|upperarm|lowerarm|forearm|hand|thigh|calf|shin|foot|ball)(l|r)$/);
   if (m) return (m[2] === 'l' ? 'left' : 'right') + LIMB[m[1]];
+  m = k.match(/^(left|right)(elbow|wrist|ankle)$/); // "Right elbow" style rigs
+  if (m) return m[1] + { elbow: 'forearm', wrist: 'hand', ankle: 'foot' }[m[2]];
   return TRUNK[k] || k;
 }
+
+// Sketchfab exports append _NN to every node name ("mixamorig:Hips_03"): drop it so bones and
+// their animation tracks read normally
+function stripExportSuffixes(g) {
+  const bones = [];
+  g.scene.traverse((o) => { if (o.isBone) bones.push(o); });
+  if (bones.length < 5 || bones.filter((b) => /_\d+$/.test(b.name)).length < bones.length * 0.8) return;
+  const map = new Map();
+  for (const b of bones) { const n = b.name.replace(/_\d+$/, ''); map.set(b.name, n); b.name = n; }
+  for (const clip of g.animations) for (const t of clip.tracks) {
+    const dot = t.name.lastIndexOf('.'), n = map.get(t.name.slice(0, dot));
+    if (n) t.name = n + t.name.slice(dot);
+  }
+}
+
+// rigs whose arms are bone chains without an upper-arm/forearm/hand naming (Groot's branch
+// arms): pick the chain bones nearest a third and two thirds of the way from shoulder to tip
+function inferArmBones(bones) {
+  for (const side of ['left', 'right']) {
+    if (bones[side + 'arm'] || !bones[side + 'shoulder']) continue;
+    const chain = [];
+    for (let b = bones[side + 'shoulder']; b; ) {
+      const next = b.children.filter((c) => c.isBone).sort((x, y) => countBones(y) - countBones(x))[0];
+      if (!next) break;
+      chain.push(next); b = next;
+    }
+    if (chain.length < 3) continue;
+    chain[0].updateWorldMatrix(true, true);
+    const P = chain.map((b) => b.getWorldPosition(new V()));
+    const cum = [0];
+    for (let i = 1; i < P.length; i++) cum.push(cum[i - 1] + P[i].distanceTo(P[i - 1]));
+    const at = (f) => { let best = 0; for (let i = 0; i < cum.length; i++) if (Math.abs(cum[i] - f * cum[cum.length - 1]) < Math.abs(cum[best] - f * cum[cum.length - 1])) best = i; return best; };
+    const e = Math.max(1, at(0.45)), h = Math.max(e + 1, at(0.85));
+    bones[side + 'arm'] = chain[0]; bones[side + 'forearm'] = chain[e]; bones[side + 'hand'] = chain[Math.min(h, chain.length - 1)];
+  }
+}
+function countBones(b) { let n = 0; b.traverse((o) => { if (o.isBone) n++; }); return n; }
 
 // game joint → model bone, filled per model in ModelRig
 const RETARGET = ['hips', 'spine', 'chest', 'head', 'lSh', 'lEl', 'lHand', 'rSh', 'rEl', 'rHand', 'lHip', 'lKnee', 'lFoot', 'rHip', 'rKnee', 'rFoot'];
@@ -454,7 +493,16 @@ class ModelRig extends Rig {
     body.add(model);
     // bones under one naming scheme; FBX nests duplicated bones, the outermost copy drives the rest
     const bones = {};
-    model.traverse((o) => { if (o.isBone) { const k = canonBone(o.name); if (!bones[k]) bones[k] = o; } });
+    let kneeRig = false;
+    model.traverse((o) => { if (o.isBone && /knee/i.test(o.name)) kneeRig = true; });
+    model.traverse((o) => {
+      if (!o.isBone) return;
+      let k = canonBone(o.name);
+      // rigs with explicit knees call the thigh "leg": Left leg → upper leg, Left knee → lower leg
+      if (kneeRig) k = k.replace(/^(left|right)leg$/, '$1upleg').replace(/^(left|right)knee$/, '$1leg');
+      if (!bones[k]) bones[k] = o;
+    });
+    inferArmBones(bones);
     const hips = bones.hips || null;
     // chest = where the arms attach (Biped hangs the clavicles off the neck)
     let chest = bones.leftarm && bones.leftarm.parent;
@@ -555,6 +603,12 @@ class ModelRig extends Rig {
       const bodyR = THREE.MathUtils.clamp((zMax - zMin) / 2, 0.08 * target / 1.85, 0.4);
       const trunk = [hips, spine, chest, head].filter(Boolean);
       this.retarget = { drv, cal, mRest, dRest, ratio: mRest.y / dRest.y, fingers, bodyR, trunk, q: new Q(), pq: new Q(), v: new V() };
+      // forearms stretch along the axis that points at their child bone (Groot's growing arms)
+      this.reachBones = [B.lEl, B.rEl].filter(Boolean).map((b) => {
+        const kid = b.children.find((c) => c.isBone);
+        const ax = kid ? ['x', 'y', 'z'].reduce((a, k) => (Math.abs(kid.position[k]) > Math.abs(kid.position[a]) ? k : a), 'x') : 'y';
+        return { b, ax, rest: b.scale[ax] };
+      });
       if (gltf.clipMap && own.length) this.overlay = this.makeOverlay(model, hips, own, gltf.clipMap, new Set(pairs.map(([, b]) => b)));
     }
     if (hero.id === 'sentry') { const aura = new THREE.PointLight(0xffd070, 0, 3, 2); chest.add(aura); this.aura = aura; }
@@ -690,6 +744,12 @@ class ModelRig extends Rig {
       if (s.quat) { O.tq.fromArray(v); if (k >= 1) s.b.quaternion.copy(O.tq); else s.b.quaternion.slerp(O.tq, k); }
       else { O.tp.fromArray(v); if (k >= 1) s.b.position.copy(O.tp); else s.b.position.lerp(O.tp, k); }
     }
+  }
+
+  setReach(k, dt) {
+    if (!this.reachBones) return;
+    this.reachK = (this.reachK ?? 1) + (k - (this.reachK ?? 1)) * Math.min(1, dt * 18);
+    for (const r of this.reachBones) r.b.scale[r.ax] = r.rest * this.reachK;
   }
 
   updateOverlay(dt) {
@@ -896,6 +956,7 @@ export async function prepareParsed(progress = () => {}) {
     try {
       const url = urls.get(id) || '', o = opts.get(id) || {};
       let g = /\.fbx$/i.test(url) ? await parseFBX(buf, url, o) : /\.mkm$/i.test(url) ? parseMKM(buf) : await parse(buf.slice(0));
+      stripExportSuffixes(g);
       let hasBones = false;
       g.scene.traverse((n) => { if (n.isBone) hasBones = true; });
       if (o.autorig || !hasBones) {
@@ -909,7 +970,7 @@ export async function prepareParsed(progress = () => {}) {
         attachLooseBones(g.scene);
         bindStaticParts(g.scene);
       }
-      if (id === 'hulk') hulkMaterials(g);
+      if (id === 'hulk' && /\.mkm$/i.test(url)) hulkMaterials(g); // the unpainted-UV sculpt only
       g.clipMap = o.clips || null;
       g.lift = o.lift || 0;
       parsed.set(id, g);
