@@ -790,10 +790,13 @@ export const ULTIMATES = {
       }
       const lt = t - f.lockT;
       const sw = f.swing || (f.swing = { hits: 0 });
+      // the foe is only puppeteered while still held: after the final blow physics owns them
+      const held = opp.state === 'locked' && opp.lockedBy === f;
       // the foe as a ragdoll: feet at `piv`, body pointing along angle `phi` (0 = toward where
       // Hulk faces, PI = behind him), rolled in the screen plane
       const hang = (px, py, phi) => {
-        opp.x = THREE.MathUtils.clamp(px, -g.bounds - 0.5, g.bounds + 0.5); opp.y = Math.max(0, py); opp.onGround = true;
+        if (!held) return;
+        opp.x = THREE.MathUtils.clamp(px, -g.bounds, g.bounds); opp.y = Math.max(0, py); opp.onGround = true;
         opp.root.rotation.order = 'ZYX';
         opp.root.rotation.z = Math.atan2(-dir * Math.cos(phi), Math.sin(phi));
       };
@@ -817,7 +820,7 @@ export const ULTIMATES = {
       if (lt < 0.3) {
         f.setPose('lift', 18); f.vx = 0;
         const k = lt / 0.3;
-        opp.x = THREE.MathUtils.lerp(f.hold.x, f.x + dir * 0.75 * f.scale, k); opp.y = 1.1 * k; opp.onGround = true;
+        if (held) { opp.x = THREE.MathUtils.clamp(THREE.MathUtils.lerp(f.hold.x, f.x + dir * 0.75 * f.scale, k), -g.bounds, g.bounds); opp.y = 1.1 * k; opp.onGround = true; }
       } else if (lt < 0.55) {
         if (!sw.hop) { sw.hop = true; f.vy = 5.5; f.onGround = false; g.audio.play('whoosh', 1.1); }
         f.setPose('smashBack', 16);
@@ -849,8 +852,10 @@ export const ULTIMATES = {
         const ft = lt - sw.t0;
         // the foe tumbles through the air and lands dazed
         const k = Math.min(1, ft / 0.55);
-        opp.x = THREE.MathUtils.lerp(sw.fromX, sw.landX, k); opp.y = Math.sin(k * Math.PI) * 2.4 + (1 - k) * 0.6; opp.onGround = true;
-        opp.root.rotation.order = 'ZYX'; opp.root.rotation.z = k < 1 ? -dir * k * Math.PI * 2 : 0;
+        if (held) {
+          opp.x = THREE.MathUtils.lerp(sw.fromX, sw.landX, k); opp.y = Math.sin(k * Math.PI) * 2.4 + (1 - k) * 0.6; opp.onGround = true;
+          opp.root.rotation.order = 'ZYX'; opp.root.rotation.z = k < 1 ? -dir * k * Math.PI * 2 : 0;
+        }
         if (k >= 1 && !sw.oppDown) { sw.oppDown = true; opp.frozen = false; g.fx.dust(new THREE.Vector3(opp.x, 0.05, 0), 16); g.audio.play('land', 1.2); }
         if (ft < 0.2) { f.setPose('crouch', 20); f.vx = 0; return true; }
         if (!sw.leapt) {
@@ -875,7 +880,7 @@ export const ULTIMATES = {
           const c = opp.chestPos(), d = f.facing;
           opp.frozen = false;
           ultHit(f, g, opp, { dmg: 11, sfx: 'heavy', color: 0xffffff, launch: 13, knockdown: true, final: true, spark: 3 });
-          opp.vx = d * 16; opp.vy = Math.max(opp.vy, 9); // blown clear across the arena
+          opp.vx = d * 13; opp.vy = Math.max(opp.vy, 7); opp.onGround = false; // blown across the arena into the wall
           const mid = f.chestPos().lerp(c, 0.5);
           g.fx.ring(mid.clone().setZ(0.5), 0xffffff, 9, 0.55, 'face', 0.05);
           g.fx.ring(mid.clone().setZ(0.45), GREEN, 6.5, 0.7, 'face', 0.08);
@@ -921,14 +926,18 @@ export const ULTIMATES = {
       }
       const lt = t - f.lockT, B = f.blitz, d = B.dir;
       // root motion: every blow drives the foe back and Cap follows through
-      const drive = (dist) => { opp.x = THREE.MathUtils.clamp(opp.x + d * dist, -g.bounds, g.bounds); };
+      // the foe is only puppeteered while still held: after the final blow physics owns them
+      const held = opp.state === 'locked' && opp.lockedBy === f;
+      const drive = (dist) => { if (held) opp.x = THREE.MathUtils.clamp(opp.x + d * dist, -g.bounds, g.bounds); };
       const gap = B.gap ?? 1.0;
       if (!B.air) { f.vx = 0; f.x += (THREE.MathUtils.clamp(opp.x - d * gap * f.scale, -g.bounds, g.bounds) - f.x) * Math.min(1, dt * 14); }
-      opp.onGround = true;
-      // the foe pops off the floor on the ricochet and rides the rising smash up
-      if (B.popT !== undefined) opp.y = Math.max(0, Math.sin(Math.min(1, (lt - B.popT) / 0.3) * Math.PI) * 0.45);
-      if (B.liftT !== undefined) { const k = Math.min(1, (lt - B.liftT) / 0.32); opp.y = 2.3 * Math.sin(k * Math.PI / 2); }
-      if (B.dropT !== undefined) { const k = Math.min(1, (lt - B.dropT) / 0.2); opp.y = 2.3 * (1 - k * k); }
+      if (held) {
+        opp.onGround = true;
+        // the foe pops off the floor on the ricochet and rides the rising smash up
+        if (B.popT !== undefined) opp.y = Math.max(0, Math.sin(Math.min(1, (lt - B.popT) / 0.3) * Math.PI) * 0.45);
+        if (B.liftT !== undefined) { const k = Math.min(1, (lt - B.liftT) / 0.32); opp.y = 2.3 * Math.sin(k * Math.PI / 2); }
+        if (B.dropT !== undefined) { const k = Math.min(1, (lt - B.dropT) / 0.2); opp.y = 2.3 * (1 - k * k); }
+      }
       if (B.disc) {
         // the thrown shield: hand → floor → foe's chin → back to the hand
         const k = (lt - B.discT) / 0.45, hand = handPos(f, shieldHand(f));
@@ -1090,24 +1099,29 @@ export const ULTIMATES = {
       f.vx = 0;
       const lt = t - f.lockT, F = f.feast;
       // pinned on the floor: feet away from Venom, head just in front of him
-      const lieX = f.x + dir * (0.6 + 1.75 * opp.scale);
-      const lie = (k) => { opp.root.rotation.order = 'ZYX'; opp.root.rotation.z = dir * Math.PI / 2 * k; };
+      // pinned feet-out; near a wall Venom shuffles back so the whole body stays in the arena
+      const reach = 0.6 + 1.75 * opp.scale;
+      if (Math.abs(f.x + dir * reach) > g.bounds) f.x = dir * g.bounds - dir * reach;
+      const lieX = f.x + dir * reach;
+      // the foe is only puppeteered while still held: after the final blow physics owns them
+      const held = opp.state === 'locked' && opp.lockedBy === f;
+      const lie = (k) => { if (!held) return; opp.root.rotation.order = 'ZYX'; opp.root.rotation.z = dir * Math.PI / 2 * k; };
       const headAt = () => new THREE.Vector3(f.x + dir * 0.7, 0.25, 0.1);
-      opp.onGround = true;
+      const put = (x, y) => { if (held) { opp.x = THREE.MathUtils.clamp(x, -g.bounds, g.bounds); opp.y = y; opp.onGround = true; } };
       if (lt < 0.4) {
         // throat seized and hoisted
         const k = lt / 0.4;
-        opp.x = THREE.MathUtils.lerp(F.x0, f.x + dir * 1.05 * f.scale, k); opp.y = 0.75 * k;
+        put(THREE.MathUtils.lerp(F.x0, f.x + dir * 1.05 * f.scale, k), 0.75 * k);
         f.setPose('grab', 20);
         drawTendrils(f.tend, base, (i) => opp.headPos().add(new THREE.Vector3(0, -0.18 - (i % 3) * 0.05, 0)), 1, 0.06);
       } else if (lt < 0.58) {
         // slammed down onto their back
         const k = (lt - 0.4) / 0.18, e = k * k;
-        opp.x = THREE.MathUtils.lerp(f.x + dir * 1.05 * f.scale, lieX, e); opp.y = THREE.MathUtils.lerp(0.75, 0.14, e); lie(e);
+        put(THREE.MathUtils.lerp(f.x + dir * 1.05 * f.scale, lieX, e), THREE.MathUtils.lerp(0.75, 0.14, e)); lie(e);
         f.setPose('smash', 30);
         drawTendrils(f.tend, base, (i) => opp.chestPos().add(new THREE.Vector3(0, (i - 2.5) * 0.1, 0)), 1, 0.06);
       } else {
-        opp.x = lieX; opp.y = 0.14; lie(1);
+        put(lieX, 0.14); lie(1);
         // tendrils pin the body to the floor
         drawTendrils(f.tend, base, (i) => new THREE.Vector3(f.x + dir * (0.9 + i * 0.28), 0.05, (i % 2 ? 0.3 : -0.3)), 1, 0.05);
       }

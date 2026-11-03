@@ -7,6 +7,7 @@ import { setSweat } from './enhance.js';
 const GRAVITY = 32;
 const FACE_ANGLE = Math.PI / 2 - 0.38; // turned slightly toward the camera
 const FREE = new Set(['idle', 'air']);
+const MAX_VX = 18, MAX_VY = 16, CEILING = 6.5; // launch caps and the arena's invisible ceiling
 const WALK_SWING = 0.48; // hip swing (rad) either side in the walk cycle
 const STRIDE = 2 * 0.89 * Math.sin(WALK_SWING); // metres per step at scale 1 (driver leg length)
 const LOOK_AT_FOE = new Set(['idle', 'air', 'attack', 'blockstun', 'special']);
@@ -288,8 +289,11 @@ export class Fighter {
         }
         if (this.stateT >= st && this.stateT <= st + act && !this.moveHit) {
           const sc = this.scale, f = this.facing;
+          // reach scales with the attacker, but strike height is aimed at the foe: a giant's
+          // jab is at head height for whoever it's thrown at, not over a smaller fighter's head
+          const ys = Math.min(sc, opp ? opp.scale : sc);
           const xa = this.x + f * m.x0 * sc, xb = this.x + f * m.x1 * sc;
-          const box = { x0: Math.min(xa, xb), x1: Math.max(xa, xb), y0: this.y + m.y0 * sc, y1: this.y + m.y1 * sc };
+          const box = { x0: Math.min(xa, xb), x1: Math.max(xa, xb), y0: this.y + m.y0 * ys, y1: this.y + m.y1 * ys };
           const r = g.zoneHit(this, box, Object.assign({}, m, { id: this.hitId, srcX: this.x }));
           if (r) { this.moveHit = r; this.connectT = 0; }
         }
@@ -365,6 +369,10 @@ export class Fighter {
 
     // physics
     if (this.state !== 'locked') {
+      // nothing unheld floats: above the floor means airborne, so gravity always brings it down;
+      // speeds are capped so no blow can fling a fighter out of the arena
+      if (this.y > 0.001 && this.onGround) this.onGround = false;
+      if (this.state === 'hit' || this.state === 'ko') { this.vx = THREE.MathUtils.clamp(this.vx, -MAX_VX, MAX_VX); this.vy = Math.min(this.vy, MAX_VY); }
       if (!this.onGround) {
         const fallMul = (this.hero.id === 'ironman' && this.vy < 0 && this.state === 'air' && this.ctrl.held('up')) ? 0.35 : 1;
         this.vy -= GRAVITY * dt * fallMul;
@@ -376,9 +384,17 @@ export class Fighter {
       this.y = 0;
       if (!this.onGround) this.land();
     }
+    // arena walls (and a ceiling): a fighter knocked into a wall bounces off it with a thud
     const b = g.bounds;
-    if (this.x < -b) { this.x = -b; if (this.state === 'hit' || this.state === 'blockstun') this.vx = Math.max(0, this.vx); }
-    if (this.x > b) { this.x = b; if (this.state === 'hit' || this.state === 'blockstun') this.vx = Math.min(0, this.vx); }
+    if (Math.abs(this.x) > b) {
+      const side = Math.sign(this.x);
+      this.x = side * b;
+      if (this.state === 'hit' || this.state === 'ko' || this.state === 'blockstun') {
+        if (side * this.vx > 6 && !this.onGround) { this.vx = -this.vx * 0.3; g.shake(0.3); g.fx.dust(new THREE.Vector3(this.x, this.y + 1, 0), 10); g.audio.play('land', 1.1); }
+        else this.vx = side > 0 ? Math.min(0, this.vx) : Math.max(0, this.vx);
+      }
+    }
+    if (this.y > CEILING) { this.y = CEILING; this.vy = Math.min(0, this.vy); }
 
     this.animate(dt);
   }
