@@ -15,11 +15,11 @@ const BASE = {
 };
 
 const OVERRIDES = {
-  thor: { heavy: { pose: ['overheadW', 'overhead'], startup: 0.24, dmg: 13, x1: 1.45, y0: 0.6, height: 'overhead', color: 0x8fd0ff, sfx: 'heavy', zap: true } },
+  thor: { heavy: { pose: ['overheadW', 'overhead'], startup: 0.24, dmg: 13, x1: 1.45, y0: 0.6, height: 'overhead', color: 0x8fd0ff, sfx: 'heavy', zap: true, lunge: 5, shake: 0.5 } },
   // fast, heavy punch; two-handed overhead smash
   hulk: {
     jab: { startup: 0.09, dmg: 5.5, x1: 1.1, push: 2.6, sfx: 'heavy' }, cross: { dmg: 6, x1: 1.12, push: 3 },
-    heavy: { pose: ['smashW', 'smash'], startup: 0.28, recovery: 0.34, dmg: 13, x1: 1.3, y0: 0.2, height: 'overhead', armor: true, knockdown: true, push: 7, shake: 0.6 },
+    heavy: { pose: ['smashW', 'smash'], startup: 0.28, recovery: 0.34, dmg: 13, x1: 1.3, y0: 0.2, height: 'overhead', armor: true, knockdown: true, push: 7, shake: 0.6, lunge: 4.5 },
   },
   gamora: {
     jab: { x1: 1.25, sfx: 'slash' }, cross: { x1: 1.3, sfx: 'slash' },
@@ -183,28 +183,244 @@ function seq(f, steps, t, run) {
 // ------------------------------------------------------------------
 // SPECIALS — start(f, g) then update(f, g, t, dt) returns false when done
 // ------------------------------------------------------------------
-export const SPECIALS = {
-  doomBolt: {
-    update(f, g, t) {
-      const GREEN = 0x7dff6a;
-      if (t < 0.18) {
-        f.setPose('castW');
-        if (Math.random() < 0.5) { const h = handPos(f); g.fx.bolt(h, h.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.5, Math.random() * 0.5, 0)), GREEN, 0.06, 0.02, 0); }
-        return true;
-      }
-      f.setPose('cast');
-      if (!f.fired) {
-        f.fired = true;
-        const p = handPos(f);
-        g.spawnProjectile({ owner: f, x: p.x + f.facing * 0.2, y: p.y, vx: f.facing * 17, r: 0.32, life: 1.1, mesh: glowOrb(0x4aff4a, 0.3), trail: GREEN,
-          hit: { dmg: 10, height: 'mid', stun: 0.45, blockstun: 0.22, push: 4, kind: 'special', sfx: 'zap', sfxVol: 0.6, color: GREEN },
-          onUpdate: (pr) => { if (Math.random() < 0.5) { const a = new THREE.Vector3(pr.x, pr.y, 0); g.fx.bolt(a, a.clone().add(new THREE.Vector3(-pr.vx * 0.03 + (Math.random() - 0.5) * 0.7, (Math.random() - 0.5) * 0.7, 0)), GREEN, 0.05, 0.025, 0); } } });
-        g.audio.play('zap', 0.7); g.audio.play('blast', 0.5);
-        g.fx.emit(p, { count: 18, color: 0xc8ffc0, color2: GREEN, speed: 6, life: 0.25, size: 0.25 });
-      }
-      return t < 0.5;
-    },
+// a bright additive lens flare: a soft radial glow plus a horizontal streak
+let flareTex = null;
+function flare(g, pos, color, size, life) {
+  if (!flareTex) {
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const x = c.getContext('2d'), gr = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.2, 'rgba(255,255,255,0.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = gr; x.fillRect(0, 0, 128, 128);
+    flareTex = new THREE.CanvasTexture(c);
+  }
+  const grp = new THREE.Group(); grp.userData.disposeTree = true;
+  const mat = () => new THREE.SpriteMaterial({ map: flareTex, color, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, transparent: true });
+  const glow = new THREE.Sprite(mat()), streak = new THREE.Sprite(mat());
+  grp.add(glow, streak); grp.position.copy(pos);
+  g.fx.timed(grp, life, (m, k) => { const a = 1 - k; glow.scale.setScalar(size * (0.6 + 0.4 * a)); streak.scale.set(size * 3.2 * a, size * 0.14, 1); glow.material.opacity = a; streak.material.opacity = a; });
+}
+
+// a twin-layer energy beam (white core in a coloured glow) between two points
+function beamPair(color, radius = 0.12) {
+  const core = line3(0xffffff, radius * 0.35);
+  const glow = line3(color, radius);
+  glow.material.transparent = true; glow.material.opacity = 0.55; glow.material.blending = THREE.AdditiveBlending; glow.material.depthWrite = false;
+  const grp = new THREE.Group(); grp.add(glow, core); grp.userData.disposeTree = true;
+  grp.setEnds = (a, b) => { core.setEnds(a, b); glow.setEnds(a, b); };
+  grp.flicker = (t) => { glow.material.opacity = 0.45 + Math.sin(t * 70) * 0.15; };
+  return grp;
+}
+function dropFx(g, obj) { if (!obj) return; g.fx.group.remove(obj); obj.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
+
+// show or hide a hero's held hammer (built-in group, or the model's hammer part)
+function thorHammer(f, on) {
+  const a = f.rig.anchors && f.rig.anchors.hammer;
+  if (a && a.parent) a.parent.visible = on;
+  f.rig.root.traverse((o) => { if (o.isMesh && /hammer/i.test(o.name)) o.visible = on; });
+}
+function hammerMesh() {
+  const grp = new THREE.Group();
+  const metal = new THREE.MeshStandardMaterial({ color: 0xb8bcc4, metalness: 0.95, roughness: 0.32 });
+  const leather = new THREE.MeshStandardMaterial({ color: 0x4a2c18, roughness: 0.8 });
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.22, 0.22), metal); grp.add(head);
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, 0.5, 10), leather); handle.position.y = -0.34; grp.add(handle);
+  grp.userData.disposeTree = true;
+  return grp;
+}
+
+// the Bifröst: a shimmering rainbow pillar (open cylinder with a scrolling spectrum) and a white core
+let rainbowTex = null;
+function bifrostBeam() {
+  if (!rainbowTex) {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 8;
+    const x = c.getContext('2d'), gr = x.createLinearGradient(0, 0, 256, 0);
+    ['#ff4040', '#ffa030', '#fff040', '#40ff70', '#40c8ff', '#6050ff', '#d040ff', '#ff4040'].forEach((col, i, a) => gr.addColorStop(i / (a.length - 1), col));
+    x.fillStyle = gr; x.fillRect(0, 0, 256, 8);
+    rainbowTex = new THREE.CanvasTexture(c); rainbowTex.wrapS = THREE.RepeatWrapping; rainbowTex.colorSpace = THREE.SRGBColorSpace;
+  }
+  const geo = new THREE.CylinderGeometry(1.15, 1.5, 16, 40, 1, true); geo.translate(0, 8, 0);
+  const tex = rainbowTex.clone(); tex.needsUpdate = true; tex.repeat.set(2, 1);
+  const outer = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  const coreGeo = new THREE.CylinderGeometry(0.32, 0.45, 16, 16, 1, true); coreGeo.translate(0, 8, 0);
+  const core = new THREE.Mesh(coreGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const grp = new THREE.Group(); grp.add(outer, core); grp.userData.disposeTree = true; grp.userData.tex = tex;
+  return grp;
+}
+// a towering lightning strike: wide coloured trunk, white-hot core, branches, a flare at the contact
+function megaBolt(g, from, to, color) {
+  g.fx.bolt(from, to, color, 0.32, 0.22, 5);
+  g.fx.bolt(from, to, 0xffffff, 0.18, 0.07, 0);
+  flare(g, to.clone().setZ(0.6), 0xd8f0ff, 2.4, 0.3);
+  g.fx.flashLight(to, color, 30, 0.25);
+  g.fx.emit(to, { count: 30, color: 0xffffff, color2: color, speed: 9, life: 0.35, size: 0.2 });
+}
+
+// a Doombot: armoured green-cloaked silhouette with glowing eyes
+function doombot() {
+  const steel = new THREE.MeshStandardMaterial({ color: 0x5a6068, metalness: 0.9, roughness: 0.35 });
+  const cloak = new THREE.MeshStandardMaterial({ color: 0x1f4a24, roughness: 0.85, side: THREE.DoubleSide });
+  const eye = new THREE.MeshBasicMaterial({ color: 0x9fff7a });
+  const grp = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.62, 4, 10), steel); body.position.y = 1.05; grp.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 10), steel); head.position.y = 1.62; grp.add(head);
+  for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.022, 6, 6), eye); e.position.set(s * 0.05, 1.64, 0.12); grp.add(e); }
+  const cape = new THREE.Mesh(new THREE.ConeGeometry(0.42, 1.25, 12, 1, true), cloak); cape.position.set(0, 0.95, -0.05); grp.add(cape);
+  for (const s of [-1, 1]) { const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.62, 8), steel); leg.position.set(s * 0.1, 0.31, 0); grp.add(leg); }
+  grp.userData.disposeTree = true;
+  return grp;
+}
+// a glowing arcane seal: gold and crimson rings, runes and Latin around the rim
+function arcaneSeal() {
+  const c = document.createElement('canvas'); c.width = c.height = 512;
+  const x = c.getContext('2d'); x.translate(256, 256);
+  x.strokeStyle = '#ffd050'; x.lineWidth = 8; x.beginPath(); x.arc(0, 0, 240, 0, Math.PI * 2); x.stroke();
+  x.strokeStyle = '#ff3a2a'; x.lineWidth = 5; x.beginPath(); x.arc(0, 0, 200, 0, Math.PI * 2); x.stroke();
+  x.lineWidth = 3; x.beginPath(); x.arc(0, 0, 120, 0, Math.PI * 2); x.stroke();
+  x.strokeStyle = '#ffd050'; x.lineWidth = 4; x.beginPath();
+  for (let i = 0; i <= 5; i++) { const a = -Math.PI / 2 + (i * 4 * Math.PI) / 5; i ? x.lineTo(Math.cos(a) * 195, Math.sin(a) * 195) : x.moveTo(Math.cos(a) * 195, Math.sin(a) * 195); }
+  x.stroke();
+  x.fillStyle = '#ffd860'; x.font = 'bold 26px serif'; x.textAlign = 'center';
+  const words = 'DOMINUS · LATVERIAE · VICTORIA · AETERNA · IMPERIUM · DOOM · '.split('');
+  words.forEach((ch, i) => { const a = (i / words.length) * Math.PI * 2; x.save(); x.rotate(a); x.fillText(ch, 0, -212); x.restore(); });
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.Mesh(new THREE.CircleGeometry(1.4, 48), new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  m.rotation.x = -Math.PI / 2; m.userData.disposeTree = true;
+  return m;
+}
+
+// Iron Man: micro-missile, orbital drop pod, Hulkbuster plates and the Proton Cannon
+const IM_RED = () => new THREE.MeshStandardMaterial({ color: 0x9a1410, metalness: 0.85, roughness: 0.25 });
+const IM_GOLD = () => new THREE.MeshStandardMaterial({ color: 0xd4a020, metalness: 0.9, roughness: 0.22 });
+function missileMesh() {
+  const grp = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.16, 6), new THREE.MeshStandardMaterial({ color: 0xd8d8dc, metalness: 0.7, roughness: 0.3 }));
+  body.rotation.z = Math.PI / 2; grp.add(body);
+  grp.add(glowOrb(0xff9030, 0.06)); grp.userData.disposeTree = true;
+  return grp;
+}
+function dropPod() {
+  const grp = new THREE.Group();
+  const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.75, 1.9, 14), IM_RED()); shell.position.y = 0.95; grp.add(shell);
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(0.55, 0.6, 14), IM_GOLD()); cap.position.y = 2.2; grp.add(cap);
+  grp.userData.disposeTree = true;
+  return grp;
+}
+function busterArmor() {
+  const red = IM_RED(), gold = IM_GOLD();
+  const part = (geo, m) => new THREE.Mesh(geo, m);
+  const pieces = {
+    lHand: part(new THREE.BoxGeometry(0.3, 0.34, 0.3), red), rHand: part(new THREE.BoxGeometry(0.3, 0.34, 0.3), red),
+    lSh: part(new THREE.SphereGeometry(0.24, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), gold), rSh: part(new THREE.SphereGeometry(0.24, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), gold),
+    chest: part(new THREE.BoxGeometry(0.62, 0.42, 0.36), red), lFoot: part(new THREE.BoxGeometry(0.22, 0.2, 0.36), gold), rFoot: part(new THREE.BoxGeometry(0.22, 0.2, 0.36), gold),
+  };
+  const grp = new THREE.Group(); for (const p of Object.values(pieces)) { p.castShadow = true; grp.add(p); }
+  grp.userData.pieces = pieces; grp.userData.disposeTree = true;
+  return grp;
+}
+function protonCannonMesh() {
+  const grp = new THREE.Group();
+  const dark = new THREE.MeshStandardMaterial({ color: 0x2a2d33, metalness: 0.9, roughness: 0.35 });
+  const glow = new THREE.MeshBasicMaterial({ color: 0x8fe0ff });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.42, 0.42), IM_RED()); body.position.x = 0.1; grp.add(body);
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 1.5, 18), dark); barrel.rotation.z = -Math.PI / 2; barrel.position.x = 1.2; grp.add(barrel);
+  for (let i = 0; i < 4; i++) { const r = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.035, 8, 20), i % 2 ? glow : IM_GOLD()); r.rotation.y = Math.PI / 2; r.position.x = 0.65 + i * 0.32; grp.add(r); }
+  const muzzle = new THREE.Object3D(); muzzle.position.x = 1.98; grp.add(muzzle);
+  grp.userData.muzzle = muzzle; grp.userData.disposeTree = true;
+  return grp;
+}
+
+// Deadpool: a pixelated red teleport flash, a pin-pulled grenade, a rocket launcher, a phone and
+// the opponent's own health bar as a club
+function pixelPoof(g, pos) {
+  const m = new THREE.MeshBasicMaterial({ color: 0xff2030, transparent: true });
+  const grp = new THREE.Group(); grp.userData.disposeTree = true;
+  for (let i = 0; i < 26; i++) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.02), i % 3 ? m : new THREE.MeshBasicMaterial({ color: 0x220000, transparent: true })); b.position.set((Math.random() - 0.5) * 0.9, (Math.random() - 0.5) * 1.8, 0.2); b.userData.v = new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 1.5, 0); grp.add(b); }
+  grp.position.copy(pos);
+  g.fx.timed(grp, 0.35, (o, k, dt) => o.children.forEach((b) => { b.position.addScaledVector(b.userData.v, dt); b.visible = Math.random() > k; b.material.opacity = 1 - k; }));
+}
+function grenadeMesh() {
+  const grp = new THREE.Group();
+  grp.add(new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 8), new THREE.MeshStandardMaterial({ color: 0x3d5a2a, roughness: 0.6 })));
+  const led = new THREE.Mesh(new THREE.SphereGeometry(0.02, 6, 6), new THREE.MeshBasicMaterial({ color: 0xff2020 })); led.position.y = 0.07; grp.add(led);
+  grp.userData.led = led; grp.userData.disposeTree = true;
+  return grp;
+}
+function launcherMesh() {
+  const grp = new THREE.Group();
+  const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1.0, 12), new THREE.MeshStandardMaterial({ color: 0x3a4430, roughness: 0.6, metalness: 0.4 }));
+  tube.rotation.z = Math.PI / 2; grp.add(tube); grp.userData.disposeTree = true;
+  return grp;
+}
+function phoneMesh() {
+  const grp = new THREE.Group();
+  grp.add(new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.15, 0.012), new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3 })));
+  const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.07, 0.13), new THREE.MeshBasicMaterial({ color: 0x88ccff })); scr.position.z = 0.007; grp.add(scr);
+  grp.userData.disposeTree = true;
+  return grp;
+}
+function healthBarProp(frac) {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 48;
+  const x = c.getContext('2d');
+  x.fillStyle = '#c8ccd4'; x.fillRect(0, 0, 512, 48);
+  x.fillStyle = '#2a0808'; x.fillRect(6, 6, 500, 36);
+  const gr = x.createLinearGradient(0, 6, 0, 42); gr.addColorStop(0, '#fff7c8'); gr.addColorStop(0.3, '#ffd84a'); gr.addColorStop(1, '#b86c06');
+  x.fillStyle = gr; x.fillRect(6, 6, 500 * THREE.MathUtils.clamp(frac, 0, 1), 36);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const m = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.16, 0.06), [new THREE.MeshStandardMaterial({ color: 0xc8ccd4, metalness: 0.6, roughness: 0.3 }), new THREE.MeshStandardMaterial({ color: 0xc8ccd4, metalness: 0.6, roughness: 0.3 }), new THREE.MeshStandardMaterial({ color: 0xc8ccd4 }), new THREE.MeshStandardMaterial({ color: 0xc8ccd4 }), new THREE.MeshBasicMaterial({ map: tex }), new THREE.MeshBasicMaterial({ map: tex })]);
+  m.geometry.translate(0.75, 0, 0); // held near one end
+  m.userData.disposeTree = true;
+  return m;
+}
+// hold a prop in a hand, pointing along `dir` (world), flat side to the camera
+function holdProp(prop, at, dir) {
+  const d = dir.clone().normalize(), up = new THREE.Vector3(0, 0, 1);
+  const y = new THREE.Vector3().crossVectors(up, d).normalize();
+  if (y.lengthSq() < 1e-6) y.set(0, 1, 0);
+  const z = new THREE.Vector3().crossVectors(d, y);
+  prop.position.copy(at);
+  prop.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(d, y, z));
+}
+
+// pulsing symbiote biomass left rooted in a crater
+function biomassRoots(g, x, life) {
+  const m = new THREE.MeshPhysicalMaterial({ color: 0x05050a, roughness: 0.15, clearcoat: 1, sheen: 0.5, sheenColor: new THREE.Color(0x4a5aa0) });
+  const grp = new THREE.Group(); grp.userData.disposeTree = true;
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + Math.random() * 0.5, r = 0.2 + Math.random() * 0.5, h = 0.5 + Math.random() * 0.7;
+    const base = new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r * 0.6);
+    const curve = new THREE.CatmullRomCurve3([base, base.clone().add(new THREE.Vector3(Math.cos(a) * 0.15, h * 0.5, 0)), base.clone().add(new THREE.Vector3(Math.cos(a) * 0.35 + (Math.random() - 0.5) * 0.3, h, Math.sin(a) * 0.2))]);
+    grp.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 10, 0.045 - i * 0.003, 6, false), m));
+  }
+  grp.position.set(x, 0, 0);
+  g.fx.timed(grp, life, (o, k) => { const s = k < 0.1 ? k / 0.1 : k > 0.8 ? (1 - k) / 0.2 : 1; o.scale.set(1, Math.max(0.01, s * (1 + Math.sin(k * 40) * 0.08)), 1); });
+}
+
+// undo a backflip without the body unwinding the long way round
+function endFlip(f) {
+  if (!f.flipX) return;
+  const c = f.rig.retarget ? f.rig.retarget.drv.cur : f.rig.cur, turns = Math.round(-f.flipX / (Math.PI * 2));
+  if (c && turns) c.bodyX += Math.PI * 2 * turns;
+  f.flipX = 0;
+}
+
+// teardown for the scripted moves (also run when a move is interrupted or a round resets)
+const CLEAN = {
+  surge(f) { const S = f.surge; f.surge = null; if (S && S.pr && S.pr.alive) S.pr.kill(); thorHammer(f, true); },
+  swarm(f, g) { const D = f.swarm; if (D) { (D.bots || []).forEach((b) => dropFx(g, b)); (D.beams || []).forEach((b) => dropFx(g, b)); } f.swarm = null; },
+  barrage(f, g) { if (f.barrage) dropFx(g, f.barrage.beam); f.barrage = null; },
+  tele(f) { endFlip(f); f.tele = null; },
+  bif(f, g) { const J = f.bif; if (J) { dropFx(g, J.beam); dropFx(g, J.clouds); } f.bif = null; const o = g.opponentOf(f); if (o) o.frozen = false; },
+  wrath(f, g) { const W = f.wrath; if (W) { dropFx(g, W.seal); dropFx(g, W.orb); dropFx(g, W.beam); (W.chains || []).forEach((c) => dropFx(g, c)); } f.wrath = null; const o = g.opponentOf(f); if (o) o.frozen = false; },
+  proton(f, g) { const P = f.proton; if (P) { dropFx(g, P.pod); dropFx(g, P.armor); dropFx(g, P.cannon); dropFx(g, P.beam); } f.proton = null; f.root.scale.setScalar(1); },
+  beat(f, g) {
+    const B = f.beat; if (B) { dropFx(g, B.bar); dropFx(g, B.rocket); dropFx(g, B.phone); } f.beat = null;
+    f.faceCam = false; if (g.camFocus && g.camFocus.f === f) g.camFocus = null;
+    const o = g.opponentOf(f); if (o) { o.frozen = false; g.hud.stealBar && g.hud.stealBar(o.side, false); }
+    g.hud.crack && g.hud.crack(false);
   },
+};
+
+export const SPECIALS = {
 
   solarFlare: {
     update(f, g, t) {
@@ -224,25 +440,6 @@ export const SPECIALS = {
     },
   },
 
-  repulsor: {
-    update(f, g, t) {
-      if (t < 0.16) { f.setPose('castW'); if (f.rig.glowMat) f.rig.glowMat.emissiveIntensity = 3 + t * 30; }
-      else {
-        f.setPose('cast');
-        if (!f.fired) {
-          f.fired = true;
-          if (f.rig.glowMat) f.rig.glowMat.emissiveIntensity = 3;
-          const p = handPos(f);
-          g.spawnProjectile({ owner: f, x: p.x + f.facing * 0.2, y: p.y, vx: f.facing * 19, r: 0.3, life: 1.0, mesh: glowOrb(0x7fd8ff, 0.3), trail: 0x7fd8ff,
-            hit: { dmg: 9, height: 'mid', stun: 0.42, blockstun: 0.22, push: 3.8, kind: 'special', sfx: 'heavy', color: 0x7fd8ff } });
-          g.audio.play('blast');
-          g.fx.emit(p, { count: 16, color: 0xbfefff, speed: 6, life: 0.2, size: 0.25 });
-          g.fx.flashLight(p, 0x7fd8ff, 8, 0.2);
-        }
-      }
-      return t < 0.46;
-    },
-  },
 
   // web projectile: pins the foe briefly (roots them), then slows them
   webShot: {
@@ -265,31 +462,6 @@ export const SPECIALS = {
     },
   },
 
-  lightning: {
-    update(f, g, t) {
-      const opp = g.opponentOf(f);
-      if (t < 0.22) f.setPose('skyW');
-      else f.setPose('sky');
-      if (t >= 0.22 && f.targetX === undefined) {
-        f.targetX = THREE.MathUtils.clamp(opp.x + opp.vx * 0.2, -g.bounds, g.bounds);
-        const mark = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.75, 32), new THREE.MeshBasicMaterial({ color: 0x8fd0ff, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-        mark.rotation.x = -Math.PI / 2; mark.position.set(f.targetX, 0.03, 0);
-        g.fx.timed(mark, 0.36, (m, k) => { m.scale.setScalar(1.4 - k * 0.6); m.material.opacity = 0.4 + 0.5 * Math.sin(k * 30); });
-        g.fx.bolt(handPos(f), handPos(f).add(new THREE.Vector3(0, 3, 0)), 0x9fd8ff, 0.2, 0.06, 1);
-        g.audio.play('whoosh');
-      }
-      if (t >= 0.58 && !f.fired) {
-        f.fired = true;
-        const x = f.targetX;
-        g.fx.bolt(new THREE.Vector3(x + (Math.random() - 0.5), 16, -0.5), new THREE.Vector3(x, 0, 0), 0x9fd8ff, 0.35, 0.16, 4);
-        g.fx.emit(new THREE.Vector3(x, 0.2, 0), { count: 40, color: 0xffffff, color2: 0x6fc0ff, speed: 9, life: 0.4, size: 0.22, up: 3, gravity: -12 });
-        g.fx.ring(new THREE.Vector3(x, 0.05, 0), 0x8fd0ff, 2.4, 0.35);
-        g.audio.play('zap'); g.shake(0.45);
-        g.zoneHit(f, { x0: x - 0.85, x1: x + 0.85, y0: 0, y1: 14 }, { id: newHitId(), dmg: 12, height: 'mid', stun: 0.55, blockstun: 0.28, push: 3, kind: 'special', sfx: 'heavy', color: 0x8fd0ff, srcX: x });
-      }
-      return t < 0.82;
-    },
-  },
 
   // slam the floor: a local shockwave around the impact that staggers and slows (block low)
   groundBreaker: {
@@ -422,23 +594,207 @@ export const SPECIALS = {
     cleanup(f, g) { removeTendrils(g, f.lash); f.lash = null; },
   },
 
-  // two quick pistol shots
-  quickdraw: {
+  // MJÖLNIR KINETIC SURGE: the hammer spun overhead into a crackling storm, hurled through the foe
+  // wrapped in lightning, then called home — dragging the foe in for a clothesline
+  kineticSurge: {
     update(f, g, t) {
-      if (t < 0.08) { f.setPose('castW'); return true; }
-      const shoot = (which) => {
-        const p = handPos(f, which);
-        g.spawnProjectile({ owner: f, x: p.x + f.facing * 0.15, y: p.y, vx: f.facing * 34, r: 0.18, life: 0.45, mesh: glowOrb(0xffd27a, 0.07), trail: 0xffe0a0,
-          hit: { dmg: 3.6, height: 'mid', stun: 0.28, blockstun: 0.14, push: 1.4, kind: 'special', sfx: 'light', color: 0xffe080 } });
-        g.audio.play('gun');
-        g.fx.emit(p, { count: 10, color: 0xffffff, color2: 0xffb040, dir: new THREE.Vector3(f.facing, 0, 0), speed: 6, spread: 0.4, life: 0.12, size: 0.18 });
-        g.fx.flashLight(p, 0xffc070, 6, 0.08);
-      };
-      if (!f.fired) { f.fired = 1; f.setPose('cast', 40); shoot('cast'); }
-      if (t >= 0.2 && f.fired === 1) { f.fired = 2; shoot('cast2'); }
-      f.setPose(t < 0.2 ? 'cast' : 'castBoth', 40);
-      return t < 0.42;
+      const opp = g.opponentOf(f), BLUE = 0x9fd8ff;
+      const S = f.surge || (f.surge = {});
+      if (t < 0.42) {
+        f.setPose('sky', 20);
+        const h = handPos(f, f.rig.anchors && f.rig.anchors.hammer ? 'hammer' : 'cast');
+        if (!S.spun) { S.spun = true; g.audio.play('zap', 0.6); g.audio.play('whoosh', 0.9); }
+        const a = t * 38;
+        if (Math.random() < 0.75) g.fx.bolt(h, h.clone().add(new THREE.Vector3(Math.cos(a) * 1.1, 0.25 + Math.random() * 0.5, Math.sin(a) * 0.6)), BLUE, 0.06, 0.035, 1);
+        g.fx.emit(h, { count: 3, color: 0xffffff, color2: BLUE, speed: 4, life: 0.25, size: 0.15 });
+        return true;
+      }
+      if (!S.pr) {
+        thorHammer(f, false);
+        const p = handPos(f), mesh = hammerMesh();
+        S.pr = g.spawnProjectile({ owner: f, x: p.x + f.facing * 0.3, y: p.y, vx: f.facing * 24, r: 0.38, life: 1.8, mesh, trail: BLUE, persistent: true,
+          hit: { dmg: 6, height: 'mid', stun: 0.7, blockstun: 0.25, push: 1, kind: 'special', sfx: 'zap', color: BLUE, pull: true },
+          onHitResult: (res) => { if (res === 'hit') S.hit = true; },
+          onUpdate: (pr, dt) => {
+            mesh.rotation.z -= f.facing * dt * 22;
+            if (Math.random() < 0.8) { const a = new THREE.Vector3(pr.x, pr.y, 0); g.fx.bolt(a, a.clone().add(new THREE.Vector3((Math.random() - 0.5) * 1.3, (Math.random() - 0.5) * 1.3, 0)), BLUE, 0.05, 0.03, 0); }
+            // through the foe (or out of range): Mjölnir turns and flies home
+            if (!S.back && (pr.hitCount > 0 || Math.abs(pr.x - f.x) > 8.5 || Math.abs(pr.x) > g.bounds + 1)) { S.back = true; g.audio.play('whoosh', 1.1); }
+            if (S.back) {
+              const h = handPos(f), dx = h.x - pr.x, dy = h.y - pr.y, d = Math.hypot(dx, dy) || 1;
+              pr.vx = dx / d * 26; pr.vy = dy / d * 26;
+              if (d < 0.55) pr.kill();
+            }
+          },
+          onEnd: () => { S.caught = true; thorHammer(f, true); } });
+        g.audio.play('blast', 0.8);
+      }
+      f.setPose('cast', 30); // arm out, calling the hammer back
+      // the foe, yanked along the hammer's path, runs into a clothesline
+      if (S.hit && !S.clothes && opp.state !== 'ko' && Math.abs(opp.x - f.x) < 1.5 * f.scale) {
+        S.clothes = true; S.clothesT = t;
+        g.directHit(f, opp, { id: newHitId(), dmg: 5, stun: 0.6, push: 6, kind: 'special', sfx: 'heavy', color: BLUE, knockdown: true, shake: 0.5 });
+        g.fx.bolt(f.chestPos(), opp.chestPos(), BLUE, 0.12, 0.08, 2);
+      }
+      if (S.clothes) f.setPose('hook', 40);
+      const done = S.caught && (!S.hit || S.clothes) && (!S.clothesT || t - S.clothesT > 0.25);
+      if (done || t > 2.2) { CLEAN.surge(f); return false; }
+      return true;
     },
+    cleanup(f) { CLEAN.surge(f); },
+  },
+
+  // DOOMBOT SWARM: a snap of the fingers, two Doombots rush in from either side and pin the foe,
+  // then Doom rises and burns through them with twin emerald beams
+  doombotSwarm: {
+    update(f, g, t) {
+      const opp = g.opponentOf(f), GREEN = 0x7dff6a;
+      const D = f.swarm || (f.swarm = {});
+      if (t < 0.2) { f.setPose('castW'); if (!D.snap) { D.snap = true; g.audio.play('zap', 0.5); g.fx.emit(handPos(f), { count: 10, color: GREEN, speed: 3, life: 0.25, size: 0.15 }); } return true; }
+      if (!D.bots) {
+        D.x = opp.x;
+        D.bots = [-1, 1].map((s) => { const b = doombot(); b.userData.from = THREE.MathUtils.clamp(D.x + s * 6, -g.bounds - 1.5, g.bounds + 1.5); b.position.set(b.userData.from, 0, -0.15); b.rotation.y = -s * Math.PI / 2; g.fx.group.add(b); return b; });
+        g.audio.play('whoosh', 1);
+      }
+      const k = Math.min(1, (t - 0.2) / 0.32);
+      D.bots.forEach((b, i) => {
+        const s = i ? 1 : -1;
+        b.position.x = THREE.MathUtils.lerp(b.userData.from, opp.x + s * 0.55 * opp.scale, k * k);
+        b.position.y = k < 1 ? Math.abs(Math.sin(t * 28)) * 0.06 : 0;
+        if (k < 1) g.fx.emit(new THREE.Vector3(b.position.x, 0.6, -0.1), { count: 1, color: 0x9fff7a, speed: 0.5, life: 0.2, size: 0.25 });
+      });
+      if (k >= 1 && !D.pinned) {
+        D.pinned = true;
+        g.zoneHit(f, { x0: opp.x - 0.7, x1: opp.x + 0.7, y0: 0, y1: 2.6 }, { id: newHitId(), dmg: 2, height: 'mid', stun: 0.9, blockstun: 0.35, push: 0, kind: 'special', sfx: 'heavy', color: GREEN, root: 1.0, srcX: f.x });
+        g.audio.play('block', 0.9);
+      }
+      // Doom rises and fires from both gauntlets
+      f.setPose(t < 0.55 ? 'cast' : 'castBoth', 30);
+      f.vy = ((t > 0.5 && t < 1.25 ? 0.6 : 0) - f.y) * 10;
+      if (t > 0.66 && t < 1.15) {
+        if (!D.beams) { D.beams = [beamPair(GREEN, 0.1), beamPair(GREEN, 0.1)]; D.beams.forEach((b) => g.fx.group.add(b)); g.audio.play('beam', 0.7); D.tick = 0; }
+        const c = opp.chestPos();
+        D.beams[0].setEnds(handPos(f, 'cast'), c); D.beams[1].setEnds(handPos(f, 'cast2'), c.clone().add(new THREE.Vector3(0, 0.15, 0)));
+        D.beams.forEach((b) => b.flicker(t));
+        g.fx.emit(c, { count: 2, color: 0xd8ffd0, color2: GREEN, speed: 4, life: 0.2, size: 0.18 });
+        if (t >= 0.7 + D.tick * 0.14 && D.tick < 3) {
+          D.tick++;
+          const x0 = Math.min(f.x, opp.x) - 0.2, x1 = Math.max(f.x, opp.x) + 0.2;
+          g.zoneHit(f, { x0, x1, y0: 0.6, y1: 2.6 }, { id: newHitId(), dmg: 1.8, height: 'mid', stun: 0.35, blockstun: 0.18, push: D.tick === 3 ? 3.5 : 0.4, kind: 'special', sfx: 'zap', sfxVol: 0.6, color: GREEN, srcX: f.x, spark: 0.6 });
+        }
+      } else if (D.beams) { D.beams.forEach((b) => dropFx(g, b)); D.beams = null; }
+      if (t > 1.15 && !D.gone) {
+        D.gone = true;
+        D.bots.forEach((b) => { g.fx.emit(b.position.clone().setY(1), { dark: true, count: 18, color: 0x050805, color2: 0x1f4a24, speed: 3, life: 0.6, size: 0.4, up: 1 }); dropFx(g, b); });
+        D.bots = [];
+      }
+      if (t > 1.45) { CLEAN.swarm(f, g); return false; }
+      return true;
+    },
+    cleanup(f, g) { CLEAN.swarm(f, g); },
+  },
+
+  // MICRO-MISSILE BARRAGE: twelve homing micro-missiles off the shoulders on fiery, smoky arcs,
+  // then a concentrated Unibeam with a heat-haze shimmer
+  missileBarrage: {
+    update(f, g, t) {
+      const opp = g.opponentOf(f), ORANGE = 0xff9030, BLUE = 0x7fd8ff;
+      const M = f.barrage || (f.barrage = { n: 0 });
+      f.setPose('charge', 24);
+      while (M.n < 12 && t >= 0.08 + M.n * 0.035) {
+        const i = M.n++, side = i % 2 ? 1 : -1;
+        const start = f.chestPos().add(new THREE.Vector3(-f.facing * 0.1, 0.4, side * 0.25));
+        const target = opp.chestPos().add(new THREE.Vector3((Math.random() - 0.5) * 0.5, (Math.random() - 0.5) * 0.7, 0));
+        const ctrl = start.clone().lerp(target, 0.4).add(new THREE.Vector3(0, 1.6 + Math.random() * 1.2, side * 1.2));
+        const mesh = missileMesh(), life = 0.4 + Math.random() * 0.15, id = newHitId(), prev = start.clone();
+        mesh.position.copy(start);
+        g.fx.timed(mesh, life, (m, k) => {
+          const a = start.clone().lerp(ctrl, k), b = ctrl.clone().lerp(target, k), p = a.lerp(b, k);
+          m.lookAt(p.clone().add(p.clone().sub(prev))); m.rotateY(-Math.PI / 2); prev.copy(p); m.position.copy(p);
+          g.fx.emit(p, { dark: true, count: 1, color: 0x3a3a3a, color2: 0x6a6a6a, speed: 0.3, life: 0.5, size: 0.18, grow: 1 });
+          g.fx.emit(p, { count: 1, color: ORANGE, color2: 0xffe0a0, speed: 0.4, life: 0.12, size: 0.14 });
+          if (k >= 1) {
+            g.fx.hitSpark(p, ORANGE, 0.5); g.fx.emit(p, { dark: true, count: 4, color: 0x2a2a2a, speed: 1.5, life: 0.5, size: 0.3 });
+            g.zoneHit(f, { x0: p.x - 0.45, x1: p.x + 0.45, y0: p.y - 0.6, y1: p.y + 0.6 }, { id, dmg: 0.6, height: 'mid', stun: 0.3, blockstun: 0.12, push: 0.35, kind: 'special', sfx: 'light', sfxVol: 0.4, color: ORANGE, srcX: f.x, spark: 0.4 });
+          }
+        });
+        if (i % 3 === 0) g.audio.play('whoosh', 0.6);
+      }
+      // the Unibeam
+      if (t > 0.66 && t < 1.04) {
+        const c = f.chestPos(), end = new THREE.Vector3(f.facing > 0 ? g.bounds + 4 : -g.bounds - 4, c.y, c.z);
+        if (!M.beam) { M.beam = beamPair(BLUE, 0.26); g.fx.group.add(M.beam); g.audio.play('beam', 0.9); M.tick = 0; }
+        M.beam.setEnds(c, end); M.beam.flicker(t);
+        g.fx.flashLight(c.clone().add(new THREE.Vector3(f.facing, 0, 0)), BLUE, 9, 0.06);
+        if (t >= 0.7 + M.tick * 0.11 && M.tick < 3) {
+          M.tick++;
+          g.zoneHit(f, { x0: Math.min(c.x, end.x), x1: Math.max(c.x, end.x), y0: c.y - 0.4, y1: c.y + 0.4 }, { id: newHitId(), dmg: 1.5, height: 'mid', stun: 0.3, blockstun: 0.14, push: M.tick === 3 ? 3 : 0.8, kind: 'special', sfx: 'light', sfxVol: 0.5, color: BLUE, srcX: c.x, spark: 0.6 });
+          // heat haze: a ripple along the beam
+          if (g.post) { const v = c.clone().lerp(end, 0.3).project(g.camera); g.post.impactAt(new THREE.Vector2(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5), 0.025); }
+        }
+      } else if (M.beam) { dropFx(g, M.beam); M.beam = null; }
+      if (t > 1.12) { CLEAN.barrage(f, g); return false; }
+      return true;
+    },
+    cleanup(f, g) { CLEAN.barrage(f, g); },
+  },
+
+  // KATANA TELEPORT SLICE: a red pixel blink to the foe's back, two slashes, a live grenade in
+  // their pocket and a backflip out before it goes off
+  teleportSlice: {
+    update(f, g, t) {
+      const opp = g.opponentOf(f);
+      const T = f.tele || (f.tele = { hits: 0 });
+      if (t < 0.1) { f.setPose('slashW'); return true; }
+      if (!T.blink) {
+        T.blink = true;
+        pixelPoof(g, f.chestPos());
+        const side = Math.sign(opp.x - f.x) || f.facing;
+        let x = opp.x + side * 1.0 * opp.scale;
+        if (Math.abs(x) > g.bounds) x = opp.x - side * 1.0 * opp.scale; // no room behind: in front instead
+        f.x = x; f.facing = opp.x > f.x ? 1 : -1; f.snapFacing();
+        pixelPoof(g, f.chestPos()); g.audio.play('whoosh', 1.2);
+      }
+      f.vx = 0;
+      const slash = (n) => {
+        if (T['s' + n]) return; T['s' + n] = true;
+        const x0 = f.x, x1 = f.x + f.facing * 1.3;
+        const r = g.zoneHit(f, { x0: Math.min(x0, x1), x1: Math.max(x0, x1), y0: 0.5, y1: 1.9 }, { id: newHitId(), dmg: 2.6, height: 'mid', stun: 0.45, blockstun: 0.2, push: 0.6, kind: 'special', sfx: 'slash', color: 0xd8dcff });
+        if (r === 'hit') T.hits++;
+        g.fx.ring(new THREE.Vector3(opp.x, opp.y + 1.2, 0.2), 0xd8dcff, 1.1, 0.16, 'face');
+      };
+      if (t < 0.4) {
+        f.setPose(t < 0.17 ? 'slash' : t < 0.24 ? 'slashW' : 'slash', 45);
+        if (t >= 0.15) slash(1);
+        if (t >= 0.3) slash(2);
+        return true;
+      }
+      if (!T.flip) {
+        T.flip = true;
+        if (T.hits) {
+          // a pin-pulled grenade slipped into the pocket, set to go off a beat later
+          const nade = grenadeMesh(), led = nade.userData.led;
+          attachFx(g, opp, nade, 0.85, (m, k) => { m.position.y = opp.y + 1.0 * opp.scale; m.position.x = opp.x - opp.facing * 0.15; led.visible = Math.sin(k * 40) > 0; });
+          g.audio.play('block', 0.5);
+          setTimeoutGame(g, 0.85, () => {
+            const p = opp.chestPos();
+            g.fx.emit(p, { count: 60, color: 0xffe0a0, color2: 0xff5010, speed: 10, life: 0.45, size: 0.3 });
+            g.fx.emit(p, { dark: true, count: 24, color: 0x2a2a2a, color2: 0x555555, speed: 3, life: 1, size: 0.5, up: 1.5 });
+            g.fx.ring(p.clone().setZ(0.3), 0xff8030, 2.6, 0.35, 'face'); g.fx.flashLight(p, 0xff8030, 22, 0.3);
+            g.audio.play('boom', 1); g.shake(0.6);
+            if (opp.state !== 'ko') g.directHit(f, opp, { id: newHitId(), dmg: 4, stun: 0.6, push: 4, kind: 'special', sfx: 'heavy', color: 0xff8030, knockdown: true });
+          });
+        }
+        f.vy = 9; f.vx = -f.facing * 5; f.onGround = false; T.flipT = t;
+        g.audio.play('jump');
+      }
+      // backflip away
+      f.setPose('jump', 30);
+      f.flipX = -Math.PI * 2 * Math.min(1, (t - T.flipT) / 0.5);
+      if ((f.onGround && t - T.flipT > 0.1) || t > 1.5) { CLEAN.tele(f); return false; }
+      return true;
+    },
+    cleanup(f) { CLEAN.tele(f); },
   },
 };
 
@@ -534,37 +890,6 @@ function venomBlade() {
 }
 
 export const ULTIMATES = {
-  doomWrath: {
-    update(f, g, t) {
-      const opp = g.opponentOf(f);
-      const GREEN = 0x7dff6a;
-      if (!f.locked) {
-        f.setPose(t < 0.22 ? 'castW' : 'castBoth');
-        if (t >= 0.22 && !f.fired) {
-          f.fired = true;
-          g.audio.play('zap', 1.1);
-          const reach = f.x + f.facing * 9;
-          g.fx.bolt(handPos(f), opp.chestPos(), GREEN, 0.35, 0.1, 3);
-          const r = g.zoneHit(f, { x0: Math.min(f.x, reach), x1: Math.max(f.x, reach), y0: 0.2, y1: 2.4 }, { id: newHitId(), dmg: 3, height: 'mid', stun: 0.8, blockstun: 0.35, push: 1, kind: 'ult', sfx: 'zap', color: GREEN });
-          if (r === 'hit' && opp.hp > 0) startLock(f, g, opp);
-        }
-        return t < 0.9;
-      }
-      f.setPose('castBoth');
-      // levitate the foe and pour green lightning into them
-      if (opp.state === 'locked') { opp.onGround = false; opp.y = Math.min(1.6, opp.y + g.dt * 2.4); }
-      if (Math.random() < 0.85) { g.fx.bolt(handPos(f), opp.chestPos(), GREEN, 0.06, 0.07, 1); g.fx.bolt(handPos(f, 'cast2'), opp.chestPos(), 0xb0ff9a, 0.06, 0.05, 1); }
-      g.fx.emit(opp.chestPos(), { count: 3, color: GREEN, color2: 0xffffff, speed: 4, life: 0.3, size: 0.25 });
-      const blast = () => { const c = opp.chestPos(); g.fx.ring(c.clone().setZ(0.3), GREEN, 4, 0.45, 'face'); g.fx.emit(c, { count: 90, color: 0xffffff, color2: GREEN, speed: 16, life: 0.6, size: 0.35 }); g.fx.flashLight(c, GREEN, 30, 0.4); g.audio.play('boom', 1.2); };
-      const done = lockCombo(f, g, t, [
-        { at: 0.15, dmg: 4, sfx: 'zap', color: GREEN }, { at: 0.42, dmg: 4, sfx: 'zap', color: GREEN },
-        { at: 0.69, dmg: 4, sfx: 'zap', color: GREEN }, { at: 0.96, dmg: 4, sfx: 'zap', color: GREEN },
-        { at: 1.25, dmg: 9, sfx: 'heavy', launch: 10, final: true, color: GREEN, fx: blast },
-        { at: 1.8 },
-      ]);
-      return !done;
-    },
-  },
 
   // THE VOID — SHADOW ERASURE: Sentry turns into the Void, the arena dims, shadow creeps across
   // the floor and the foe is turned to a silhouette, dissolved, and returned (only visually —
@@ -680,77 +1005,7 @@ export const ULTIMATES = {
     },
   },
 
-  unibeam: {
-    update(f, g, t) {
-      const glow = f.rig.glowMat;
-      if (t < 0.4) {
-        f.setPose('charge');
-        if (glow) glow.emissiveIntensity = 3 + t * 20;
-        if (!f.chargeFx) { f.chargeFx = true; g.audio.play('beam'); }
-        const c = f.chestPos();
-        g.fx.emit(c, { count: 3, color: 0x9fe8ff, speed: -3, life: 0.3, size: 0.2, jitter: 2.0 });
-        return true;
-      }
-      f.setPose('charge');
-      const c = f.chestPos();
-      const end = f.facing > 0 ? g.bounds + 6 : -g.bounds - 6;
-      if (!f.beam) {
-        const geo = new THREE.CylinderGeometry(0.42, 0.42, 1, 20, 1, true); geo.translate(0, 0.5, 0); geo.rotateZ(-Math.PI / 2);
-        const outer = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x5fc8ff, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
-        const inner = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
-        inner.scale.set(1, 0.45, 0.45);
-        f.beam = new THREE.Group(); f.beam.add(outer, inner);
-        g.fx.group.add(f.beam);
-        f.beamTick = 0; f.beamHits = 0; f.seqIdx = 0;
-        g.shake(0.4);
-      }
-      const len = Math.abs(end - c.x);
-      f.beam.position.set(c.x, c.y, c.z);
-      f.beam.scale.set(len * f.facing, 1 + Math.sin(t * 60) * 0.12, 1 + Math.cos(t * 50) * 0.12);
-      g.fx.flashLight(c.clone().add(new THREE.Vector3(f.facing * 2, 0, 0)), 0x7fd8ff, 10, 0.06);
-      if (Math.random() < 0.8) g.fx.emit(c, { count: 2, color: 0xffffff, color2: 0x5fc8ff, dir: new THREE.Vector3(f.facing, 0, 0), speed: 18, spread: 0.2, life: 0.4, size: 0.3 });
-      f.beamTick -= g.dt;
-      if (f.beamTick <= 0 && t < 1.6) {
-        f.beamTick = 0.1;
-        f.beamHits++;
-        const final = f.beamHits >= 12;
-        g.zoneHit(f, { x0: Math.min(c.x, end), x1: Math.max(c.x, end), y0: c.y - 0.5, y1: c.y + 0.5 },
-          { id: newHitId(), dmg: final ? 4 : 2.3, height: 'mid', stun: 0.3, blockstun: 0.14, push: final ? 5 : 0.9, knockdown: final, kind: 'ult', sfx: 'light', sfxVol: 0.5, color: 0x7fd8ff, srcX: c.x, chip: 0.25, spark: 0.6 });
-      }
-      if (t >= 1.62) {
-        g.fx.group.remove(f.beam); f.beam.children.forEach((m) => { m.material.dispose(); }); f.beam.children[0].geometry.dispose(); f.beam = null;
-        if (glow) glow.emissiveIntensity = 3;
-        return false;
-      }
-      return true;
-    },
-    cleanup(f, g) { if (f.beam) { g.fx.group.remove(f.beam); f.beam = null; } if (f.rig.glowMat) f.rig.glowMat.emissiveIntensity = 3; },
-  },
 
-  thunderstorm: {
-    update(f, g, t) {
-      const opp = g.opponentOf(f);
-      f.setPose(t < 0.2 ? 'skyW' : 'sky');
-      if (Math.random() < 0.5) {
-        const h = handPos(f, 'hammer');
-        g.fx.bolt(h, h.clone().add(new THREE.Vector3((Math.random() - 0.5) * 2, 1 + Math.random() * 1.5, 0)), 0x9fd8ff, 0.08, 0.04, 0);
-      }
-      if (f.seqIdx === undefined) f.seqIdx = 0;
-      const strike = (s) => {
-        const x = THREE.MathUtils.clamp(opp.x + (s.final ? 0 : (Math.random() - 0.5) * 0.5), -g.bounds, g.bounds);
-        g.fx.bolt(new THREE.Vector3(x + (Math.random() - 0.5) * 2, 17, -0.6), new THREE.Vector3(x, 0, 0), 0x9fd8ff, s.final ? 0.5 : 0.25, s.final ? 0.32 : 0.14, s.final ? 6 : 3);
-        g.fx.emit(new THREE.Vector3(x, 0.3, 0), { count: s.final ? 70 : 25, color: 0xffffff, color2: 0x6fc0ff, speed: s.final ? 13 : 8, life: 0.45, size: 0.24, up: 3, gravity: -12 });
-        g.fx.ring(new THREE.Vector3(x, 0.05, 0), 0x8fd0ff, s.final ? 4 : 2, 0.35);
-        g.audio.play('zap', s.final ? 1.2 : 0.8);
-        g.shake(s.final ? 1.0 : 0.35);
-        g.zoneHit(f, { x0: x - (s.final ? 1.4 : 0.8), x1: x + (s.final ? 1.4 : 0.8), y0: 0, y1: 14 },
-          { id: newHitId(), dmg: s.final ? 10 : 4.4, height: 'mid', stun: 0.45, blockstun: 0.25, push: s.final ? 6 : 0.5, knockdown: s.final, launch: s.final ? 9 : 0, kind: 'ult', sfx: 'heavy', color: 0x8fd0ff, srcX: f.x, chip: 0.25, spark: s.final ? 2 : 1 });
-        if (s.final) g.hitstop(0.12);
-      };
-      const done = seq(f, [{ at: 0.3 }, { at: 0.5 }, { at: 0.7 }, { at: 0.9 }, { at: 1.1 }, { at: 1.45, final: true }, { at: 1.9, end: true }], t, (s) => { if (!s.end) strike(s); });
-      return !done;
-    },
-  },
 
   // HULK SMASH: leap onto the foe, a flurry of haymakers, then a massive slam whose shockwave
   // rolls across the whole arena
@@ -1157,6 +1412,7 @@ export const ULTIMATES = {
           splatter(p.clone().setY(0.3), 70, 9);
           g.fx.emit(p.clone().setY(0.2), { dark: true, count: 40, color: INK, color2: 0x10142a, dir: new THREE.Vector3(0, 0.25, 0), spread: 2.2, speed: 12, life: 0.6, size: 0.18, drag: 2 });
           crater(g, p.x, 1.6, 3, 0x020208);
+          biomassRoots(g, p.x, 2.8);
           g.fx.ring(p, 0x6a74ff, 4, 0.45);
           if (g.post) { const v = p.clone().project(g.camera); g.post.impactAt(new THREE.Vector2(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5), 0.1); }
         } },
@@ -1174,51 +1430,319 @@ export const ULTIMATES = {
     },
   },
 
-  // MERC WITH A MOUTH: katana dash, a blur of cuts and kicks, a word to the audience, then a finisher
-  mercMouth: {
-    update(f, g, t) {
-      const opp = g.opponentOf(f);
+  // GOD OF THUNDER: BIFRÖST JUDGMENT: a rainbow pillar of Bifröst light lifts the foe; Thor hovers
+  // in it under black thunderclouds, crackling, and calls five lightning strikes from the sky and
+  // his own fists, then drops with Mjölnir in both hands and sends a lightning dragon along the floor
+  bifrostJudgment: {
+    update(f, g, t, dt) {
+      const opp = g.opponentOf(f), BLUE = 0x9fd8ff;
+      const J = f.bif || (f.bif = {});
+      if (J.beam) { J.beam.userData.tex.offset.x += dt * 0.6; J.beam.children[1].material.opacity = 0.3 + Math.sin(t * 30) * 0.08; }
       if (!f.locked) {
-        if (t < 0.12) { f.setPose('slashW'); return true; }
-        if (t < 0.42) {
-          f.setPose('slash'); f.vx = f.facing * 22; f.noPush = true;
-          if (!f.hitId) { f.hitId = newHitId(); g.audio.play('slash'); }
-          g.fx.emit(new THREE.Vector3(f.x, 1.1, 0), { count: 3, color: 0xff3040, speed: 0.5, life: 0.25, size: 0.4 });
-          const x0 = f.x - f.facing * 0.3, x1 = f.x + f.facing * 1.4;
-          const r = g.zoneHit(f, { x0: Math.min(x0, x1), x1: Math.max(x0, x1), y0: 0.4, y1: 1.9 }, { id: f.hitId, dmg: 3, height: 'mid', stun: 0.9, blockstun: 0.35, push: 2, kind: 'ult', sfx: 'slash', color: 0xd8dcff });
-          if (r === 'hit' && opp.hp > 0) { f.vx = 0; f.noPush = false; startLock(f, g, opp); }
-          return true;
+        f.setPose(t < 0.25 ? 'skyW' : 'sky');
+        if (!J.beam) {
+          J.x = THREE.MathUtils.clamp(opp.x, -g.bounds, g.bounds);
+          J.beam = bifrostBeam(); J.beam.position.set(J.x, 0, -0.1); J.beam.scale.set(0.05, 1, 0.05); g.fx.group.add(J.beam);
+          g.audio.play('beam', 1.1); g.setDark(0.45, 3.6); g.shake(0.4);
         }
-        f.noPush = false; f.vx *= 0.8; f.setPose('idle');
-        return t < 0.8;
+        const k = Math.min(1, t / 0.45); J.beam.scale.set(k, 1, k);
+        if (t >= 0.45 && !f.fired) {
+          f.fired = true;
+          const r = g.zoneHit(f, { x0: J.x - 1.2, x1: J.x + 1.2, y0: 0, y1: 12 }, { id: newHitId(), dmg: 3, height: 'mid', stun: 0.9, blockstun: 0.4, push: 0.5, kind: 'ult', sfx: 'zap', color: BLUE, srcX: f.x, chip: 0.25 });
+          if (r === 'hit' && opp.hp > 0) { startLock(f, g, opp); opp.frozen = true; }
+        }
+        if (t > 0.95) { CLEAN.bif(f, g); return false; }
+        return true;
       }
-      f.vx = 0;
-      const side = (s) => (ff, o) => {
-        g.fx.emit(new THREE.Vector3(ff.x, ff.y + 1.1, 0), { count: 12, color: 0xff3040, color2: 0xffffff, speed: 3, life: 0.3, size: 0.3 });
-        ff.x = THREE.MathUtils.clamp(o.x + s * 1.1, -g.bounds, g.bounds); ff.facing = ff.x < o.x ? 1 : -1; ff.snapFacing();
+      const lt = t - f.lockT, held = opp.state === 'locked' && opp.lockedBy === f;
+      // the foe hangs in the beam; Thor rises to hover at its edge
+      if (held) { opp.onGround = true; opp.x += (J.x - opp.x) * Math.min(1, dt * 6); opp.y = lt < 1.75 ? Math.min(1.9, opp.y + dt * 3.2) : Math.max(0, 1.9 - (lt - 1.75) * 12); }
+      f.vy = ((lt < 1.62 ? 1.25 : 0) - f.y) * (lt < 1.62 ? 7 : 0) + (lt >= 1.62 ? -20 : 0);
+      if (!J.clouds) {
+        J.clouds = new THREE.Group(); J.clouds.userData.disposeTree = true;
+        const m = new THREE.MeshBasicMaterial({ color: 0x0a0c14, transparent: true, opacity: 0, depthWrite: false });
+        for (let i = 0; i < 16; i++) { const c = new THREE.Mesh(new THREE.CircleGeometry(1.6 + Math.random() * 1.6, 16), m); c.position.set(J.x + (i - 8) * 1.4, 5.6 + Math.random() * 0.7, -3 - Math.random()); c.scale.y = 0.45; J.clouds.add(c); }
+        g.fx.group.add(J.clouds); J.cloudMat = m;
+      }
+      J.cloudMat.opacity = Math.min(0.92, lt * 2) * (lt > 2.2 ? Math.max(0, 1 - (lt - 2.2) * 3) : 1);
+      // incandescent: crackling chest and eyes
+      g.fx.flashLight(f.chestPos(), BLUE, 7, 0.05);
+      if (Math.random() < 0.6) { const h = f.headPos(); g.fx.bolt(h, h.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.8, Math.random() * 0.6, 0.2)), BLUE, 0.05, 0.03, 0); }
+      g.fx.emit(f.chestPos(), { count: 2, color: 0xffffff, color2: BLUE, speed: 2.5, life: 0.25, size: 0.14 });
+      const strike = (i) => () => {
+        const to = opp.chestPos();
+        const from = i % 2 ? new THREE.Vector3(J.x + (Math.random() - 0.5) * 3, 8.5, -1) : handPos(f, i % 4 ? 'cast2' : 'cast');
+        megaBolt(g, from, to, BLUE);
+        crater(g, J.x + (Math.random() - 0.5) * 1.2, 0.6, 2.4, 0x07080c);
+        g.audio.play('zap', 1); g.shake(0.45); g.rumble(0.6, 150);
       };
-      const cut = () => g.fx.ring(new THREE.Vector3(opp.x, opp.y + 1.2, 0.2), 0xd8dcff, 1.1, 0.16, 'face');
-      const LINES = ['Is this thing on?', 'Hi, Mom!', 'Kids, don\'t try this at home.', 'Am I the main character now?', 'Remember to stretch!'];
-      const quip = () => {
-        // fourth wall: turn to the camera for a moment, then straight back to work
-        f.faceCam = true; g.focusOn(f, 0.85, { dx: 0.15, dz: 1.5, dy: -0.15 });
-        g.hud.announce(LINES[Math.floor(Math.random() * LINES.length)], 'quip', 0.9);
-        g.audio.grunt(f.hero, 'effort', 0.9);
+      const dragon = () => {
+        // the lightning dragon: a bolt racing along the floor to both walls
+        const p = new THREE.Vector3(opp.x, 0.05, 0);
+        g.fx.ring(p, 0xffffff, 7, 0.5); g.fx.ring(p, BLUE, 4.5, 0.4); flare(g, p.clone().setY(1).setZ(0.6), 0xd8f0ff, 4, 0.4);
+        for (const s of [-1, 1]) for (let k = 0; k < 9; k++) {
+          const x0 = opp.x + s * k * 1.25, x1 = x0 + s * 1.25;
+          if (Math.abs(x0) > g.bounds + 1) break;
+          setTimeoutGame(g, k * 0.035, () => { g.fx.bolt(new THREE.Vector3(x0, 0.15, 0.1), new THREE.Vector3(x1, 0.15 + Math.random() * 0.4, 0.1), BLUE, 0.3, 0.16, 2); g.fx.emit(new THREE.Vector3(x1, 0.2, 0), { count: 8, color: 0xffffff, color2: BLUE, speed: 6, life: 0.3, size: 0.18, up: 2 }); crater(g, x1, 0.45, 2, 0x07080c); });
+        }
+        g.audio.play('boom', 1.5); g.audio.play('zap', 1.3); g.rumble(1, 500);
+        if (g.post) g.post.impact(1);
       };
-      const back = () => { f.faceCam = false; if (g.camFocus && g.camFocus.f === f) g.camFocus = null; };
+      const pose = lt < 1.4 ? (Math.floor(lt / 0.25) % 2 ? 'cast' : 'sky') : lt < 1.62 ? 'overheadW' : 'overhead';
+      f.setPose(pose, 30);
       const done = lockCombo(f, g, t, [
-        { at: 0.04, reposition: side(-1), pose: 'slash', dmg: 3, sfx: 'slash', color: 0xd8dcff, fx: cut },
-        { at: 0.15, reposition: side(1), pose: 'spinKick', dmg: 3, sfx: 'heavy' },
-        { at: 0.26, reposition: side(-1), pose: 'slash', dmg: 3, sfx: 'slash', color: 0xd8dcff, fx: cut },
-        { at: 0.37, reposition: side(1), pose: 'jab', dmg: 2.5, sfx: 'light' },
-        { at: 0.52, pose: 'wave', fx: quip },
-        { at: 1.38, pose: 'slashW', fx: back },
-        { at: 1.52, pose: 'slash', dmg: 10, sfx: 'slash', knockdown: true, launch: 8, final: true, color: 0xff3040, fx: () => { cut(); g.fx.ring(new THREE.Vector3(opp.x, opp.y + 1.2, 0.25), 0xff3040, 2.4, 0.25, 'face'); } },
-        { at: 2.0 },
+        { at: 0.25, dmg: 3.5, sfx: 'zap', color: BLUE, fx: strike(0) },
+        { at: 0.5, dmg: 3.5, sfx: 'zap', color: BLUE, fx: strike(1) },
+        { at: 0.75, dmg: 3.5, sfx: 'zap', color: BLUE, fx: strike(2) },
+        { at: 1.0, dmg: 3.5, sfx: 'zap', color: BLUE, fx: strike(3) },
+        { at: 1.25, dmg: 3.5, sfx: 'zap', color: BLUE, fx: strike(4) },
+        { at: 1.9, dmg: 10, sfx: 'heavy', color: BLUE, knockdown: true, launch: 9, final: true, spark: 2.6, fx: () => { opp.frozen = false; dragon(); } },
+        { at: 2.6 },
       ]);
-      if (done) { back(); return false; }
+      if (done) { CLEAN.bif(f, g); return false; }
       return true;
     },
-    cleanup(f, g) { f.faceCam = false; if (g.camFocus && g.camFocus.f === f) g.camFocus = null; },
+    cleanup(f, g) { CLEAN.bif(f, g); },
+  },
+
+  // MONARCH'S WRATH: a boot-tap opens a gold-and-crimson seal that chains the foe; Doom floats up
+  // and siphons their power into his armour, condenses it into an emerald sun and fires it down
+  // in a beam that ends in a towering pillar of green fire
+  monarchsWrath: {
+    update(f, g, t, dt) {
+      const opp = g.opponentOf(f), GREEN = 0x7dff6a, GOLD = 0xffc040;
+      const W = f.wrath || (f.wrath = {});
+      if (W.seal) W.seal.rotation.z += dt * 0.8;
+      if (!f.locked) {
+        f.setPose(t < 0.2 ? 'kickW' : 'idle', 40);
+        if (t >= 0.2 && !W.seal) {
+          W.x = THREE.MathUtils.clamp(opp.x, -g.bounds, g.bounds);
+          W.seal = arcaneSeal(); W.seal.position.set(W.x, 0.03, 0); W.seal.scale.setScalar(0.1); g.fx.group.add(W.seal);
+          g.audio.play('land', 1); g.audio.play('zap', 0.8); g.fx.ring(new THREE.Vector3(f.x, 0.05, 0), GOLD, 1.2, 0.3);
+        }
+        if (W.seal) W.seal.scale.setScalar(Math.min(1, (t - 0.2) / 0.2 + 0.1));
+        if (t >= 0.42 && !f.fired) {
+          f.fired = true;
+          const r = g.zoneHit(f, { x0: W.x - 1.3, x1: W.x + 1.3, y0: 0, y1: 2.6 }, { id: newHitId(), dmg: 3, height: 'mid', stun: 0.9, blockstun: 0.4, push: 0.3, kind: 'ult', sfx: 'zap', color: GOLD, srcX: W.x, chip: 0.25 });
+          if (r === 'hit' && opp.hp > 0) { startLock(f, g, opp); opp.frozen = true; }
+        }
+        if (t > 0.95) { CLEAN.wrath(f, g); return false; }
+        return true;
+      }
+      const lt = t - f.lockT, held = opp.state === 'locked' && opp.lockedBy === f;
+      if (held) { opp.x += (W.x - opp.x) * Math.min(1, dt * 8); opp.y = 0; opp.onGround = true; }
+      // glowing chains from the seal's rim to the foe
+      if (!W.chains && held) { W.chains = [-1, 1].flatMap((s) => [0.45, -0.45].map((z) => { const c = beamPair(GOLD, 0.05); c.userData.anchor = new THREE.Vector3(W.x + s * 1.1, 0.05, z); g.fx.group.add(c); return c; })); }
+      if (W.chains) W.chains.forEach((c, i) => { c.setEnds(c.userData.anchor, opp.chestPos().add(new THREE.Vector3(0, -0.3 + (i % 2) * 0.4, 0))); c.flicker(lt + i); });
+      // float up, open the arms and drain them
+      f.vy = ((lt < 2.4 ? 1.4 : 0) - f.y) * 6;
+      f.setPose(lt < 1.6 ? 'charge' : 'castBoth', 20);
+      if (lt > 0.3 && lt < 1.6) {
+        const a = opp.chestPos(), b = f.chestPos();
+        g.fx.emit(a, { count: 3, color: GREEN, color2: 0x9ff0ff, dir: b.clone().sub(a), spread: 0.35, speed: a.distanceTo(b) * 2.2, life: 0.45, size: 0.2 });
+        if (Math.random() < 0.25) g.fx.bolt(a, b, GREEN, 0.08, 0.05, 1);
+        const d = Math.min(opp.ult, 32 * dt); opp.ult -= d; f.ult = Math.min(100, f.ult + d * 0.8);
+        g.fx.flashLight(b, GREEN, 6, 0.05);
+      }
+      // the stolen power condenses into an emerald sun between his palms
+      if (lt > 1.6) {
+        if (!W.orb) { W.orb = glowOrb(GREEN, 0.4); W.orb.userData.disposeTree = true; g.fx.group.add(W.orb); g.audio.play('beam', 0.9); }
+        W.orbPos = f.chestPos().add(new THREE.Vector3(f.facing * 0.6, 0.05, 0.25));
+        W.orb.position.copy(W.orbPos);
+        W.orb.scale.setScalar(Math.min(1.7, (lt - 1.6) * 3.2) * (W.beam ? 0.7 : 1 + Math.sin(lt * 40) * 0.06));
+        if (!W.beam) g.fx.emit(W.orbPos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 1.6, (Math.random() - 0.5) * 1.6, 0)), { count: 2, color: GREEN, color2: 0xffffff, dir: new THREE.Vector3(0, 0, 0.0001), speed: 0.1, life: 0.2, size: 0.18 });
+      }
+      if (lt > 2.15 && lt < 2.6) {
+        if (!W.beam) { W.beam = beamPair(GREEN, 0.42); g.fx.group.add(W.beam); g.audio.play('blast', 1.2); g.audio.play('beam', 1.2); }
+        W.beam.setEnds(W.orbPos, new THREE.Vector3(W.x, 0.1, 0)); W.beam.flicker(lt);
+      } else if (W.beam) { dropFx(g, W.beam); W.beam = null; }
+      const pillar = () => {
+        if (W.chains) { W.chains.forEach((c) => dropFx(g, c)); W.chains = null; }
+        opp.frozen = false;
+        const geo = new THREE.CylinderGeometry(1.1, 1.5, 12, 32, 1, true); geo.translate(0, 6, 0);
+        const p = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: GREEN, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+        p.position.set(W.x, 0, 0); p.userData.disposeTree = true;
+        g.fx.timed(p, 0.9, (m, k) => { m.scale.set(0.4 + k * 1.2, Math.min(1, k * 5), 0.4 + k * 1.2); m.material.opacity = 0.8 * (1 - k); });
+        const at = new THREE.Vector3(W.x, 1, 0);
+        g.fx.ring(at.clone().setY(0.05), GREEN, 6, 0.5); g.fx.ring(at.clone().setZ(0.4), 0xffffff, 3, 0.3, 'face');
+        g.fx.emit(at, { count: 120, color: 0xffffff, color2: GREEN, speed: 14, life: 0.7, size: 0.32, up: 4 });
+        g.fx.flashLight(at, GREEN, 40, 0.5); crater(g, W.x, 1.4, 3, 0x061006);
+        g.audio.play('boom', 1.5); g.shake(1.5); g.rumble(1, 500);
+        if (g.post) g.post.impact(1);
+      };
+      const done = lockCombo(f, g, t, [
+        { at: 0.55, dmg: 2, sfx: 'zap', color: GREEN, noFlash: true, spark: 0.4 },
+        { at: 0.9, dmg: 2, sfx: 'zap', color: GREEN, noFlash: true, spark: 0.4 },
+        { at: 1.25, dmg: 2, sfx: 'zap', color: GREEN, noFlash: true, spark: 0.4 },
+        { at: 1.55, dmg: 2, sfx: 'zap', color: GREEN, noFlash: true, spark: 0.4 },
+        { at: 2.25, dmg: 11, sfx: 'heavy', color: GREEN, knockdown: true, launch: 9, final: true, spark: 2.5, fx: pillar },
+        { at: 3.0 },
+      ]);
+      if (done) { CLEAN.wrath(f, g); return false; }
+      return true;
+    },
+    cleanup(f, g) { CLEAN.wrath(f, g); },
+  },
+
+  // HOUSE PARTY PROTOCOL: an orbital drop pod slams down and bolts Hulkbuster plating onto Iron
+  // Man; a Proton Cannon assembles from his back, he braces on his thrusters, charges it and
+  // fires a beam that swallows most of the screen
+  protonCannon: {
+    update(f, g, t, dt) {
+      const opp = g.opponentOf(f), BLUE = 0x6fd0ff;
+      const P = f.proton || (f.proton = {});
+      if (!P.pod) { P.pod = dropPod(); P.pod.position.set(f.x, 14, -0.35); g.fx.group.add(P.pod); g.audio.play('whoosh', 1.4); }
+      if (t < 0.4) {
+        const k = t / 0.4; P.pod.position.y = 14 * (1 - k * k);
+        g.fx.emit(P.pod.position.clone().add(new THREE.Vector3(0, 2.4, 0)), { count: 4, color: 0xffa040, color2: 0xffffff, speed: 2, life: 0.3, size: 0.4, up: 2 });
+        f.setPose('crouch'); return true;
+      }
+      if (!P.landed) {
+        P.landed = true;
+        const p = new THREE.Vector3(f.x, 0.05, 0);
+        g.fx.dust(p, 40); g.fx.ring(p, 0xffc080, 3, 0.4); g.audio.play('boom', 1.2); g.shake(0.8); g.rumble(0.8, 300);
+        g.fx.emit(p.clone().setY(1), { count: 30, color: 0xffd080, color2: 0xff6020, speed: 8, life: 0.35, size: 0.25 });
+        dropFx(g, P.pod); P.pod = null;
+        P.armor = busterArmor(); g.fx.group.add(P.armor); g.audio.play('shield', 0.9);
+      }
+      growTo(f, P.shrink ? 1 : 1.32, dt, 8);
+      // the plating rides the joints
+      if (P.armor) {
+        const pc = P.armor.userData.pieces, J = f.rig.J, s = f.root.scale.x;
+        const at = (o) => o.getWorldPosition(new THREE.Vector3());
+        const yaw = f.root.rotation.y, side = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+        if (J.lHand) pc.lHand.position.copy(at(J.lHand)); if (J.rHand) pc.rHand.position.copy(at(J.rHand));
+        const ch = at(J.chest);
+        pc.chest.position.copy(ch).add(new THREE.Vector3(0, -0.05, 0)); pc.chest.rotation.y = yaw;
+        pc.lSh.position.copy(ch).addScaledVector(side, 0.3 * s).add(new THREE.Vector3(0, 0.15 * s, 0));
+        pc.rSh.position.copy(ch).addScaledVector(side, -0.3 * s).add(new THREE.Vector3(0, 0.15 * s, 0));
+        if (J.lFoot) pc.lFoot.position.copy(at(J.lFoot)); if (J.rFoot) pc.rFoot.position.copy(at(J.rFoot));
+        for (const k of ['lFoot', 'rFoot', 'lHand', 'rHand']) pc[k].rotation.y = yaw;
+        P.armor.children.forEach((c) => c.scale.setScalar(s));
+      }
+      // the Proton Cannon assembles out of the nano-pack
+      const muzzle = new THREE.Vector3();
+      if (t > 0.55) {
+        if (!P.cannon) { P.cannon = protonCannonMesh(); g.fx.group.add(P.cannon); g.audio.play('shield', 0.7); }
+        const c = f.chestPos();
+        P.cannon.position.set(c.x + f.facing * 0.25, c.y - 0.15, 0.3);
+        P.cannon.rotation.y = f.facing > 0 ? 0 : Math.PI;
+        P.cannon.scale.setScalar(Math.min(1, (t - 0.55) / 0.35) * f.root.scale.x);
+        P.cannon.updateMatrixWorld(true); P.cannon.userData.muzzle.getWorldPosition(muzzle);
+        if (t < 0.9) g.fx.emit(c.clone().add(new THREE.Vector3(-f.facing * 0.3, 0.3, 0)), { count: 3, color: 0xffd060, color2: 0xff6020, speed: 3, life: 0.2, size: 0.12 });
+        // bracing: thrusters fire into the floor behind
+        g.fx.emit(new THREE.Vector3(f.x - f.facing * 0.35, 0.25, 0), { count: 3, color: 0xffa040, color2: 0xffffff, dir: new THREE.Vector3(-f.facing, -0.5, 0), speed: 9, life: 0.25, size: 0.22 });
+      }
+      f.setPose(t < 0.55 ? 'idle' : 'castBoth', 20);
+      // charging: blue energy funnels into the barrel
+      if (t > 1.1 && t < 1.7) {
+        if (!P.charging) { P.charging = true; g.audio.play('beam', 1); g.audio.play('ultstart', 0.6); }
+        for (let i = 0; i < 4; i++) { const a = Math.random() * Math.PI * 2, r = 0.9 + Math.random() * 0.4; const from = muzzle.clone().add(new THREE.Vector3(0, Math.cos(a) * r, Math.sin(a) * r)); g.fx.emit(from, { count: 1, color: BLUE, color2: 0xffffff, dir: muzzle.clone().sub(from), spread: 0.05, speed: r / 0.2, life: 0.2, size: 0.16 }); }
+        g.fx.flashLight(muzzle, BLUE, 4 + (t - 1.1) * 20, 0.05);
+      }
+      // the beam: white-hot core, plasma rings, heat haze, shaking camera and rattling HUD
+      if (t > 1.7 && t < 2.95) {
+        const end = new THREE.Vector3(f.facing > 0 ? g.bounds + 6 : -g.bounds - 6, muzzle.y, muzzle.z);
+        if (!P.beam) {
+          P.beam = new THREE.Group(); P.beam.userData.disposeTree = true;
+          for (const [r, col, op] of [[1.25, BLUE, 0.35], [0.75, 0x9fe8ff, 0.5], [0.32, 0xffffff, 1]]) { const b = line3(col, r); b.material.transparent = true; b.material.opacity = op; b.material.blending = THREE.AdditiveBlending; b.material.depthWrite = false; P.beam.add(b); }
+          g.fx.group.add(P.beam); P.tick = 0;
+          g.audio.play('blast', 1.4); g.audio.play('beam', 1.4); g.hud.rattle && g.hud.rattle(1.2); g.shake(0.8);
+        }
+        P.beam.children.forEach((b, i) => { b.setEnds(muzzle, end); b.scale.x = b.scale.y = 1 + Math.sin(t * 60 + i) * 0.1; });
+        g.shake(0.25); g.fx.flashLight(muzzle.clone().add(new THREE.Vector3(f.facing * 2, 0, 0)), BLUE, 18, 0.06);
+        g.fx.emit(muzzle, { count: 3, color: 0xffffff, color2: BLUE, dir: new THREE.Vector3(f.facing, 0, 0), speed: 22, spread: 0.3, life: 0.4, size: 0.4 });
+        if (t >= 1.75 + P.tick * 0.11 && P.tick < 11) {
+          P.tick++;
+          const final = P.tick === 11;
+          // the hit area runs from Iron Man himself (a foe standing inside the barrel's reach is in it)
+          g.zoneHit(f, { x0: Math.min(f.x, end.x), x1: Math.max(f.x, end.x), y0: muzzle.y - 1.3, y1: muzzle.y + 1.3 }, { id: newHitId(), dmg: final ? 5 : 1.8, height: 'mid', stun: 0.35, blockstun: 0.15, push: final ? 6 : 0.7, knockdown: final, launch: final ? 8 : 0, kind: 'ult', sfx: 'light', sfxVol: 0.5, color: BLUE, srcX: f.x, chip: 0.25, spark: 0.7 });
+          if (g.post) { const v = muzzle.clone().lerp(end, 0.25 + Math.random() * 0.3).project(g.camera); g.post.impactAt(new THREE.Vector2(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5), 0.03); }
+          g.rumble(0.7, 120);
+        }
+      } else if (P.beam) { dropFx(g, P.beam); P.beam = null; }
+      if (t > 2.95) P.shrink = true;
+      if (t > 3.25) { CLEAN.proton(f, g); return false; }
+      return true;
+    },
+    cleanup(f, g) { CLEAN.proton(f, g); },
+  },
+
+  // 4TH-WALL BEATDOWN: a blink-slash to grab the foe; Deadpool knocks on the screen (it cracks),
+  // pulls the foe's health bar down out of the HUD, clubs them with it three times, fires a rocket
+  // launcher into their feet, takes a selfie in the smoke and snaps the bar back where it belongs
+  healthbarBeatdown: {
+    update(f, g, t) {
+      const opp = g.opponentOf(f);
+      const B = f.beat || (f.beat = {});
+      if (!f.locked) {
+        if (t < 0.12) { f.setPose('slashW'); return true; }
+        if (!B.blink) {
+          B.blink = true; pixelPoof(g, f.chestPos());
+          const side = Math.sign(opp.x - f.x) || f.facing;
+          let x = opp.x - side * 1.0 * opp.scale;
+          f.x = THREE.MathUtils.clamp(x, -g.bounds, g.bounds); f.facing = opp.x > f.x ? 1 : -1; f.snapFacing();
+          pixelPoof(g, f.chestPos()); g.audio.play('whoosh', 1.2);
+          const x0 = f.x, x1 = f.x + f.facing * 1.4;
+          const r = g.zoneHit(f, { x0: Math.min(x0, x1), x1: Math.max(x0, x1), y0: 0.4, y1: 1.9 }, { id: newHitId(), dmg: 2, height: 'mid', stun: 0.9, blockstun: 0.35, push: 0.5, kind: 'ult', sfx: 'slash', color: 0xd8dcff, chip: 0.25 });
+          if (r === 'hit' && opp.hp > 0) { startLock(f, g, opp); opp.frozen = true; }
+        }
+        f.setPose('slash', 40);
+        if (t > 0.6) { CLEAN.beat(f, g); return false; }
+        return true;
+      }
+      const lt = t - f.lockT, side = opp.side;
+      const swing = (word) => () => {
+        g.hud.popText && g.hud.popText(word, opp.headPos(), g.camera);
+        g.audio.play('heavy', 1); g.audio.play('block', 0.8); g.shake(0.4);
+        g.fx.hitSpark(opp.headPos(), 0xffe080, 1.2);
+      };
+      // the stolen bar, held like a bat: cocked over the shoulder, then swung down onto the head
+      if (B.bar) {
+        const hand = handPos(f, 'cast');
+        const ph = (lt - 1.3) % 0.35 / 0.35;
+        const cocked = new THREE.Vector3(-f.facing * 0.4, 1, 0), struck = opp.headPos().sub(hand);
+        holdProp(B.bar, hand, lt < 2.35 ? cocked.lerp(struck, ph > 0.55 ? 1 : ph / 0.55) : new THREE.Vector3(0, -1, 0.2));
+      }
+      if (B.rocket) { const h = handPos(f, 'cast'); holdProp(B.rocket, h.add(new THREE.Vector3(0, 0.15, 0)), new THREE.Vector3(f.facing, -0.35, 0)); }
+      if (B.phone) { const h = handPos(f, 'cast2'); holdProp(B.phone, h, new THREE.Vector3(0, 1, 0)); }
+      const poses = [[0.2, 'idle'], [0.4, 'jab'], [0.5, 'jabW'], [0.6, 'jab'], [0.95, 'idle'], [1.25, 'sky'], [1.3, 'overheadW']];
+      let pose = 'overheadW';
+      for (const [at, p] of poses) if (lt >= at) pose = p;
+      if (lt > 1.3 && lt < 2.35) pose = ((lt - 1.3) % 0.35) / 0.35 > 0.55 ? 'overhead' : 'overheadW';
+      if (lt > 2.35) pose = lt < 2.75 ? 'cast' : lt < 3.5 ? 'wave' : 'idle';
+      f.setPose(pose, 35);
+      const done = lockCombo(f, g, t, [
+        // the camera bump: turn to the audience and knock on the glass
+        { at: 0.2, fx: () => { f.faceCam = true; g.focusOn(f, 1.05, { dx: 0.1, dz: 1.4, dy: -0.15 }); } },
+        { at: 0.42, fx: () => g.audio.play('block', 1.2) },
+        { at: 0.6, fx: () => { g.audio.play('block', 1.3); g.hud.crack && g.hud.crack(true); g.shake(0.3); } },
+        // reach up and pull the foe's health bar out of the HUD
+        { at: 0.95, fx: () => { g.hud.stealBar && g.hud.stealBar(side, true); g.audio.play('whoosh', 1); } },
+        { at: 1.25, fx: () => { f.faceCam = false; if (g.camFocus && g.camFocus.f === f) g.camFocus = null; B.bar = healthBarProp(opp.hp / opp.maxHp); g.fx.group.add(B.bar); } },
+        { at: 1.53, dmg: 3, sfx: 'heavy', color: 0xffe080, fx: swing('KAPOW!') },
+        { at: 1.88, dmg: 3, sfx: 'heavy', color: 0xffe080, fx: swing('BANG!') },
+        { at: 2.23, dmg: 3, sfx: 'heavy', color: 0xffe080, fx: swing('BAM!') },
+        { at: 2.35, fx: () => { dropFx(g, B.bar); B.bar = null; B.rocket = launcherMesh(); g.fx.group.add(B.rocket); g.audio.play('shield', 0.6); } },
+        { at: 2.6, dmg: 10, sfx: 'heavy', color: 0xff8030, knockdown: true, launch: 7, final: true, spark: 2.4, fx: () => {
+          opp.frozen = false;
+          const p = new THREE.Vector3(opp.x, 0.3, 0.1);
+          g.fx.emit(p, { count: 90, color: 0xffe0a0, color2: 0xff4010, speed: 12, life: 0.5, size: 0.35, up: 3 });
+          g.fx.emit(p, { dark: true, count: 40, color: 0x2a2a2a, color2: 0x5a5a5a, speed: 3, life: 1.6, size: 0.7, up: 1.5, grow: 1 });
+          g.fx.ring(p, 0xff8030, 3.5, 0.4); g.fx.flashLight(p, 0xff8030, 35, 0.4); crater(g, opp.x, 1.1, 2.5);
+          g.audio.play('boom', 1.5); g.shake(1.2); g.rumble(1, 400);
+          dropFx(g, B.rocket); B.rocket = null;
+        } },
+        // selfie in the smoke
+        { at: 2.85, fx: () => { f.faceCam = true; g.focusOn(f, 0.75, { dx: 0.15, dz: 1.5, dy: -0.15 }); B.phone = phoneMesh(); g.fx.group.add(B.phone); g.hud.announce('#nofilter', 'quip', 0.7); } },
+        { at: 3.2, fx: () => { g.fx.flashLight(f.headPos(), 0xffffff, 30, 0.15); if (g.post) g.post.impact(0.4); g.audio.play('select', 1); } },
+        // snap the bar back where it belongs
+        { at: 3.55, fx: () => { f.faceCam = false; if (g.camFocus && g.camFocus.f === f) g.camFocus = null; dropFx(g, B.phone); B.phone = null; g.hud.stealBar && g.hud.stealBar(side, false); g.hud.crack && g.hud.crack(false); } },
+        { at: 3.8 },
+      ]);
+      if (done) { CLEAN.beat(f, g); return false; }
+      return true;
+    },
+    cleanup(f, g) { CLEAN.beat(f, g); },
   },
 };

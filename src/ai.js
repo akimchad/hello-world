@@ -5,7 +5,7 @@ const LEVELS = {
   normal: { think: [0.16, 0.32], block: 0.5, react: 0.18, combo: 0.55, aggro: 0.6, antiAir: 0.4 },
   hard:   { think: [0.08, 0.18], block: 0.8, react: 0.1, combo: 0.85, aggro: 0.72, antiAir: 0.7 },
 };
-const RANGED = new Set(['repulsor', 'webShot', 'lightning', 'shieldThrow', 'solarFlare', 'doomBolt', 'rootSnare', 'symbioteLash', 'quickdraw']);
+const RANGED = new Set(['missileBarrage', 'webShot', 'kineticSurge', 'shieldThrow', 'solarFlare', 'doombotSwarm', 'rootSnare', 'symbioteLash']);
 
 export class CpuInput {
   constructor(level = 'normal') {
@@ -73,7 +73,7 @@ export class CpuInput {
     if (!this.held('down')) this.release('down');
 
     const sp = me.hero.special.id;
-    if (me.ult >= 100 && opp.state !== 'down' && opp.state !== 'ko' && (dist < 3.2 || ['unibeam', 'thunderstorm', 'doomWrath', 'voidErasure', 'ancientForest', 'freedomStrike'].includes(me.hero.ultimate.id)) && Math.random() < 0.6) {
+    if (me.ult >= 100 && opp.state !== 'down' && opp.state !== 'ko' && (dist < 3.2 || ['protonCannon', 'bifrostJudgment', 'monarchsWrath', 'voidErasure', 'ancientForest', 'freedomStrike'].includes(me.hero.ultimate.id)) && Math.random() < 0.6) {
       this.press('ult'); return;
     }
     if (opp.state === 'down' || opp.state === 'getup') {
@@ -89,7 +89,7 @@ export class CpuInput {
     }
     if (dist > 1.7) {
       if ((sp === 'dashSlash') && me.specialCd <= 0 && r < 0.3) { this.press('special'); return; }
-      if ((sp === 'groundBreaker' || sp === 'lightning' || sp === 'webShot' || sp === 'rootSnare') && me.specialCd <= 0 && r < 0.2) { this.press('special'); return; }
+      if ((sp === 'groundBreaker' || sp === 'kineticSurge' || sp === 'webShot' || sp === 'rootSnare') && me.specialCd <= 0 && r < 0.2) { this.press('special'); return; }
       if (r < 0.1 * L.aggro) { this.hold(toward, 0.3); this.press('up'); this.press(Math.random() < 0.5 ? 'light' : 'heavy', 0.32); return; }
       if (r > 0.92) { this.hold(away, 0.25); return; }
       this.hold(toward, 0.25); this.release(away);

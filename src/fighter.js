@@ -513,6 +513,7 @@ export class Fighter {
     }
     // hit recoil: a damped snap along the blow (high hits whip the head, body blows fold the
     // trunk, low hits buckle the knees); much smaller through a block
+    if (this.flipX) p.bodyX += this.flipX; // scripted flips (Deadpool's backflip)
     const R = this.recoil;
     if (R) {
       R.t += dt;

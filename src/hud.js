@@ -30,6 +30,38 @@ export class HUD {
     this.el.banner.classList.remove('show');
     this.introCard(null);
     this.last = {};
+    this.crack(false); this.el.hp.forEach((_, i) => this.stealBar(i, false));
+  }
+
+  // comic-book sound word popping at a point in the 3D scene
+  popText(text, worldPos, camera) {
+    const v = worldPos.clone().project(camera);
+    const el = document.createElement('div');
+    el.className = 'pop-word'; el.textContent = text;
+    el.style.left = ((v.x * 0.5 + 0.5) * 100) + '%'; el.style.top = ((-v.y * 0.5 + 0.5) * 100) + '%';
+    el.style.setProperty('--tilt', ((Math.random() - 0.5) * 24).toFixed(1) + 'deg');
+    document.getElementById('screen-hud').appendChild(el);
+    setTimeout(() => el.remove(), 900);
+  }
+
+  // cracked glass over the whole screen (Deadpool knocking on it)
+  crack(on) {
+    let el = document.getElementById('screen-crack');
+    if (!el) { el = document.createElement('div'); el.id = 'screen-crack'; document.getElementById('screen-hud').appendChild(el); }
+    el.classList.toggle('on', on);
+  }
+
+  // pull a fighter's health bar down out of the HUD (and snap it back)
+  stealBar(side, on) {
+    const fr = this.el.hp[side] && this.el.hp[side].closest('.hp-frame');
+    if (fr) fr.classList.toggle('stolen', on);
+  }
+
+  // the whole HUD rattles for `dur` seconds
+  rattle(dur) {
+    const el = document.getElementById('screen-hud');
+    el.classList.remove('rattle'); void el.offsetWidth; el.classList.add('rattle');
+    clearTimeout(this.rattleT); this.rattleT = setTimeout(() => el.classList.remove('rattle'), dur * 1000);
   }
 
   // a hit big enough to crack the health bar's frame for a moment

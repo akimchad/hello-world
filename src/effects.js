@@ -234,7 +234,11 @@ export class Effects {
     const D = this.dark;
     step(D.parts, D.pos, D.col, D.size, D.alpha, this.darkPoints);
 
-    this.items = this.items.filter((it) => {
+    // effects spawned from inside another effect's update (a missile's explosion, a delayed
+    // callback's ring) are pushed onto a fresh list, so they survive this pass
+    const live = this.items;
+    this.items = [];
+    const kept = live.filter((it) => {
       const keep = it.update(dt);
       if (!keep && it.mesh) {
         this.group.remove(it.mesh);
@@ -243,6 +247,7 @@ export class Effects {
       }
       return keep;
     });
+    this.items = kept.concat(this.items);
     for (const L of this.lights) {
       if (L.life > 0) { L.life -= dt; L.l.intensity = L.peak * Math.max(0, L.life / L.max); }
       else L.l.intensity = 0;

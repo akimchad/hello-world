@@ -344,3 +344,15 @@ kbd {
   100% { transform: none; filter: none; }
 }
 @keyframes hpCracks { 0% { opacity: 1; } 70% { opacity: 0.85; } 100% { opacity: 0; } }
+
+/* Deadpool's 4th-wall beatdown: cracked screen, the stolen health bar, comic sound words */
+#screen-crack { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.15s; z-index: 5;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 900'%3E%3Cg fill='none' stroke='rgba(255,255,255,0.85)' stroke-width='3'%3E%3Cpath d='M800 430 L640 210 L520 40'/%3E%3Cpath d='M800 430 L1010 260 L1180 70'/%3E%3Cpath d='M800 430 L1120 470 L1450 420'/%3E%3Cpath d='M800 430 L990 690 L1100 880'/%3E%3Cpath d='M800 430 L600 640 L430 860'/%3E%3Cpath d='M800 430 L470 420 L150 470'/%3E%3Cpath d='M640 210 L700 330 L800 430'/%3E%3Cpath d='M1010 260 L960 380'/%3E%3Cpath d='M1120 470 L980 520'/%3E%3Cpath d='M600 640 L700 520'/%3E%3Cpath d='M470 420 L650 470'/%3E%3C/g%3E%3Ccircle cx='800' cy='430' r='26' fill='rgba(255,255,255,0.25)' stroke='rgba(255,255,255,0.9)' stroke-width='3'/%3E%3C/svg%3E") center / cover no-repeat; }
+#screen-crack.on { opacity: 1; }
+.hp-frame { transition: transform 0.35s cubic-bezier(.5,-0.3,.6,1.3), opacity 0.2s 0.25s; }
+.hp-frame.stolen { transform: translateY(42vh) scale(1.25) rotate(-8deg); opacity: 0; }
+.pop-word { position: absolute; transform: translate(-50%, -50%) rotate(var(--tilt)); font: 900 64px/1 'Bangers', 'Impact', sans-serif; color: #ffe14a; -webkit-text-stroke: 3px #111;
+  text-shadow: 4px 4px 0 #d8261a; pointer-events: none; animation: popWord 0.9s ease-out forwards; z-index: 6; }
+@keyframes popWord { 0% { transform: translate(-50%, -50%) rotate(var(--tilt)) scale(0.2); opacity: 0; } 15% { transform: translate(-50%, -60%) rotate(var(--tilt)) scale(1.25); opacity: 1; } 70% { opacity: 1; } 100% { transform: translate(-50%, -90%) rotate(var(--tilt)) scale(1); opacity: 0; } }
+#screen-hud.rattle { animation: hudRattle 0.08s linear infinite; }
+@keyframes hudRattle { 0% { transform: translate(0, 0); } 25% { transform: translate(-3px, 2px); } 50% { transform: translate(3px, -2px); } 75% { transform: translate(-2px, -2px); } 100% { transform: translate(0, 0); } }

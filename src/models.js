@@ -16,6 +16,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { Rig, JOINTS } from './rig.js';
 import { enhanceRig } from './enhance.js';
+import { SpringBones, CLOTH, HAIR, bonesMatching, rigCape } from './springs.js';
 import { autoRig, boxUVs, segDist } from './autorig.js';
 import { normalCanvas, heightCanvas, overlayNoise, noiseCanvas, toTex } from './textures.js';
 
@@ -25,6 +26,14 @@ const DEFAULT_MODELS = {
   sentry: ['assets/models/sentry_realistic.glb', 'assets/models/sentry.glb'],
 };
 // standing height in metres: sets the model scale, hurtbox and attack reach
+// capes, hair and loose gear simulated as spring bones (by bone name), or a bone-less cape mesh
+// that gets a generated bone grid first
+const SPRINGS = {
+  doom: [{ re: /^(cape|cloth)_bone/i, params: CLOTH }],
+  sentry: [{ re: /^(left|right)cape\d/i, params: CLOTH }],
+  gamora: [{ re: /^dyn_(cape|hood)/i, params: CLOTH }, { re: /^dyn_hair/i, params: HAIR }],
+  thor: [{ capeMesh: /cape/i, params: CLOTH }],
+};
 const HEIGHTS = { hulk: 2.55, groot: 2.5, venom: 2.2, doom: 1.96, thor: 1.95, ironman: 1.92, sentry: 1.92, cap: 1.88, deadpool: 1.84, gamora: 1.78, spiderman: 1.76 };
 
 // game animation keys → clip-name search lists (first match wins)
@@ -648,6 +657,7 @@ class ModelRig extends Rig {
     }
     if (hero.id === 'sentry') { const aura = new THREE.PointLight(0xffd070, 0, 3, 2); chest.add(aura); this.aura = aura; }
     if (hero.id === 'groot' && head && B.lSh && B.rSh) this.glowNodes = grootAdorn(this, B, headAnchor, target);
+    if (SPRINGS[hero.id] && hips && chest) this.springs = makeSprings(model, SPRINGS[hero.id], B, chest, this.retarget ? this.retarget.bodyR : 0.15 * target / 1.85, target / 1.85);
     this.collectFlashMaterials();
     enhanceRig(this);
     this.setAnim('idle');
@@ -732,7 +742,7 @@ class ModelRig extends Rig {
   }
 
   update(pose, dt, rate = 16) {
-    if (this.hasAnims) { this.mixer.update(dt); return; }
+    if (this.hasAnims) { this.mixer.update(dt); if (this.springs) this.springs.update(dt); return; }
     const R = this.retarget;
     if (!R) return;
     const O = this.overlay;
@@ -770,6 +780,7 @@ class ModelRig extends Rig {
     // loose fist: knuckles curl most, the middle joints a little less, the tips least
     if (!R.curled) { R.curled = true; for (const f of R.fingers) { const k = [0.8, 0.95, 0.6][+boneKey(f.name).slice(-1) - 1] ?? 0.8; f.rotation.z += /left/i.test(f.name) ? k : -k; } }
     if (O) this.updateOverlay(dt);
+    if (this.springs) this.springs.update(dt);
   }
 
   // sample a clip straight onto the bones (k < 1 blends toward it from what is there)
@@ -853,6 +864,27 @@ function gripWeapon(model, hand, elbow, gripName, H) {
   grip.updateMatrixWorld(true);
   hand.attach(grip);
   model.updateMatrixWorld(true);
+}
+
+// spring-bone groups for a hero, colliding with capsules around the torso, neck and legs
+function makeSprings(model, spec, B, chest, bodyR, s) {
+  const groups = [];
+  for (const g of spec) {
+    let bones = [];
+    if (g.re) bones = bonesMatching(model, g.re);
+    else if (g.capeMesh) model.traverse((o) => { if (!bones.length && o.isSkinnedMesh && g.capeMesh.test(o.name)) bones = rigCape(o, chest); });
+    if (bones.length) groups.push({ bones, params: g.params });
+  }
+  if (!groups.length) return null;
+  const P = (b) => b.getWorldPosition(new V());
+  const legs = [[B.lHip, B.lKnee, B.lFoot], [B.rHip, B.rKnee, B.rFoot]].filter((l) => l.every(Boolean));
+  const capsules = () => {
+    const c = [{ a: P(B.hips), b: P(chest), r: bodyR * 1.1 }];
+    if (B.head) c.push({ a: P(chest), b: P(B.head), r: bodyR * 0.7 });
+    for (const [h, k, f] of legs) { c.push({ a: P(h), b: P(k), r: 0.1 * s }); c.push({ a: P(k), b: P(f), r: 0.07 * s }); }
+    return c;
+  };
+  return new SpringBones(model, groups, capsules);
 }
 
 // Groot: glowing amber fibre nodes across the shoulders and a crown of twisting branches
