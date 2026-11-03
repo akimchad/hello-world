@@ -6,10 +6,12 @@ export const JOINTS = ['hips', 'spine', 'chest', 'head', 'lSh', 'lEl', 'rSh', 'r
 
 // ---------- pose library ----------
 const Z = [0, 0, 0];
+const SCALARS = ['hipY', 'lie', 'bodyX', 'bodyY', 'cape', 'lFt', 'rFt'];
 function P(o) {
-  const p = { hipY: 0, lie: 0, bodyX: 0, bodyY: 0, cape: 0 };
+  // lFt / rFt: extra foot pitch on top of the flat-foot solve (heel strike, toe-off)
+  const p = { hipY: 0, lie: 0, bodyX: 0, bodyY: 0, cape: 0, lFt: 0, rFt: 0 };
   for (const j of JOINTS) p[j] = o[j] ? o[j].slice() : Z.slice();
-  for (const k of ['hipY', 'lie', 'bodyX', 'bodyY', 'cape']) if (o[k] !== undefined) p[k] = o[k];
+  for (const k of SCALARS) if (o[k] !== undefined) p[k] = o[k];
   return p;
 }
 
@@ -94,7 +96,7 @@ export function lerpPose(a, b, t, out = null) {
     const x = a[j], y = b[j], r = o[j];
     r[0] = x[0] + (y[0] - x[0]) * t; r[1] = x[1] + (y[1] - x[1]) * t; r[2] = x[2] + (y[2] - x[2]) * t;
   }
-  for (const k of ['hipY', 'lie', 'bodyX', 'bodyY', 'cape']) o[k] = a[k] + (b[k] - a[k]) * t;
+  for (const k of SCALARS) o[k] = a[k] + (b[k] - a[k]) * t;
   return o;
 }
 export function clonePose(p) { return lerpPose(p, p, 0); }
@@ -116,6 +118,9 @@ export function canvasTexture(w, h, draw, repeat = null) {
 export function mat(color, o = {}) {
   return new THREE.MeshStandardMaterial({ color, roughness: o.rough ?? 0.55, metalness: o.metal ?? 0.05, emissive: o.emissive ?? 0x000000, emissiveIntensity: o.ei ?? 1, map: o.map ?? null, side: o.side ?? THREE.FrontSide });
 }
+
+const _lv = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+const _lq = [new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion()];
 
 export class Rig {
   constructor(root, body, J, dims) {
@@ -214,7 +219,7 @@ export class Rig {
     for (const j of JOINTS) J[j].rotation.set(c[j][0], c[j][1], c[j][2]);
     // keep feet flat relative to the ground
     for (const s of ['l', 'r']) {
-      J[s + 'Foot'].rotation.x = -(c.hips[0] + c[s + 'Hip'][0] + c[s + 'Knee'][0]) * (1 - c.lie);
+      J[s + 'Foot'].rotation.x = -(c.hips[0] + c[s + 'Hip'][0] + c[s + 'Knee'][0]) * (1 - c.lie) + c[s + 'Ft'] * (1 - c.lie);
     }
     // auto-ground: hips height from the most extended leg
     const drop = (s) => {
@@ -237,6 +242,41 @@ export class Rig {
       const mm = this.flashMats[i];
       if (amount > 0) { mm.emissive.copy(this.baseEmissive[i]).lerp(color, amount); mm.emissiveIntensity = Math.max(this.baseEI[i], amount * 1.4); }
       else { mm.emissive.copy(this.baseEmissive[i]); mm.emissiveIntensity = this.baseEI[i]; }
+    }
+  }
+
+  // aim the chest → neck → head chain at a world point. Each link takes a share of the remaining
+  // error, clamped, so the turn starts in the upper back and finishes in the head. Runs after
+  // the pose (and any clip) every frame, so it is purely additive.
+  lookAt(target, weight) {
+    if (!this.lookChain) {
+      if (this.isModel || !this.J.chest || !this.J.head) return;
+      const f = new THREE.Vector3(0, 0, 1);
+      this.lookChain = [{ b: this.J.chest, fwd: f, w: 0.3, max: 0.3 }, { b: this.J.head, fwd: f, w: 1, max: 0.75 }];
+      this.lookEye = this.J.head;
+    }
+    // bones nothing else poses (an imported rig's neck) would accumulate the turn: undo last
+    // frame's turn first when the bone still holds exactly what was left there
+    for (const l of this.lookChain) if (l.after && l.b.quaternion.equals(l.after)) l.b.quaternion.copy(l.before);
+    if (weight <= 0.001) { for (const l of this.lookChain) l.after = null; return; }
+    this.root.updateMatrixWorld(true);
+    const eye = this.lookEye.getWorldPosition(_lv[0]);
+    for (const l of this.lookChain) {
+      const wq = l.b.getWorldQuaternion(_lq[0]);
+      const fwd = _lv[1].copy(l.fwd).applyQuaternion(wq);
+      const want = _lv[2].copy(target).sub(eye).normalize();
+      const ang = fwd.angleTo(want);
+      l.before = (l.before || new THREE.Quaternion()).copy(l.b.quaternion);
+      if (ang < 1e-4) { l.after = null; continue; }
+      const turn = Math.min(ang * l.w, l.max) * weight;
+      const axis = _lv[3].crossVectors(fwd, want);
+      if (axis.lengthSq() < 1e-10 || !Number.isFinite(axis.x + axis.y + axis.z)) { l.after = null; continue; }
+      axis.normalize();
+      const dq = _lq[1].setFromAxisAngle(axis, turn);
+      const pq = l.b.parent.getWorldQuaternion(_lq[2]).invert();
+      l.b.quaternion.copy(pq.multiply(dq.multiply(wq)));
+      l.after = (l.after || new THREE.Quaternion()).copy(l.b.quaternion);
+      l.b.updateMatrixWorld(true);
     }
   }
 

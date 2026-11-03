@@ -506,6 +506,9 @@ export class Match {
       rate = 2;
     }
     const k = 1 - Math.exp(-rate * dt);
+    // a single bad frame (NaN from a degenerate target) must not leave the camera stuck forever
+    if (!Number.isFinite(pos.x + pos.y + pos.z + look.x + look.y + look.z)) { pos.copy(this.camPos); look.copy(this.camLook); }
+    if (!Number.isFinite(this.camPos.x + this.camPos.y + this.camPos.z + this.camLook.x + this.camLook.y + this.camLook.z)) { this.camPos.set(0, 2.6, 11); this.camLook.set(0, 1.2, 0); }
     this.camPos.lerp(pos, k);
     this.camLook.lerp(look, k);
     this.camera.position.copy(this.camPos);

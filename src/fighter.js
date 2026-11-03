@@ -7,6 +7,9 @@ import { setSweat } from './enhance.js';
 const GRAVITY = 32;
 const FACE_ANGLE = Math.PI / 2 - 0.38; // turned slightly toward the camera
 const FREE = new Set(['idle', 'air']);
+const WALK_SWING = 0.48; // hip swing (rad) either side in the walk cycle
+const STRIDE = 2 * 0.89 * Math.sin(WALK_SWING); // metres per step at scale 1 (driver leg length)
+const LOOK_AT_FOE = new Set(['idle', 'air', 'attack', 'blockstun', 'special']);
 const STUNNED = new Set(['hit', 'locked', 'down', 'ko']);
 
 export class Fighter {
@@ -160,6 +163,9 @@ export class Fighter {
     const kick = new THREE.Vector3(dir * (2 + (hit.push || 0) * 0.6), 1.5 + (hit.launch ? 3 : 0), (Math.random() - 0.5) * 2);
     for (const c of this.rig.cloths) c.impulse(kick);
     if (!hit.noFlash) this.flash(0xffffff, 0.1);
+    // head and torso snap along the blow: away from the attacker, at the height it landed
+    const front = Math.sign(opp.x - this.x) === this.facing ? 1 : -1;
+    this.recoil = { t: 0, front, h: hit.height || 'mid', amp: Math.min(1, 0.45 + (hit.dmg || 0) * 0.05), twist: Math.random() < 0.5 ? -1 : 1 };
     if (this.hp <= 0) {
       this.state = 'ko'; this.stateT = 0;
       this.vy = Math.max(9, hit.launch || 0); this.vx = dir * 7.5; this.onGround = false; this.crouching = false;
@@ -247,7 +253,9 @@ export class Fighter {
           const back = dir !== this.facing;
           const target = dir * this.hero.speed * (back ? 0.78 : 1) * (this.slowT > 0 ? 0.5 : 1);
           this.vx += (target - this.vx) * Math.min(1, dt * 18);
-          this.walkPhase += dt * this.hero.speed * 2.6 * (back ? -1 : 1);
+          // stride matched to ground speed so planted feet don't skate: a half cycle (one step)
+          // covers the distance the foot sweeps, 2 · leg · sin(swing)
+          this.walkPhase += dt * Math.PI * Math.abs(this.vx) / (STRIDE * this.scale) * (back ? -1 : 1);
         } else {
           this.vx *= Math.max(0, 1 - dt * 16);
         }
@@ -283,7 +291,7 @@ export class Fighter {
           const xa = this.x + f * m.x0 * sc, xb = this.x + f * m.x1 * sc;
           const box = { x0: Math.min(xa, xb), x1: Math.max(xa, xb), y0: this.y + m.y0 * sc, y1: this.y + m.y1 * sc };
           const r = g.zoneHit(this, box, Object.assign({}, m, { id: this.hitId, srcX: this.x }));
-          if (r) this.moveHit = r;
+          if (r) { this.moveHit = r; this.connectT = 0; }
         }
         if (m.armor && this.stateT < st + act) this.armor = true; else this.armor = false;
         // driving moves: weight rocks back in the wind-up, then the body carries forward through the strike
@@ -449,6 +457,80 @@ export class Fighter {
   }
 
   // ---------------------------------------------------------------
+  // additive body mechanics on top of the chosen pose: breathing and micro-motion, the
+  // anticipation / drive / follow-through of strikes, recoil on connect, and hit recoil
+  layer(base, dt) {
+    const p = lerpPose(base, base, 0, this.layerPose || (this.layerPose = clonePose(base)));
+    const st = this.state;
+    // breathing: faster and deeper as the fight wears on (sweat tracks fatigue)
+    const tired = Math.min(1, this.sweat || 0);
+    this.breathT = (this.breathT || 0) + dt * (1 + tired * 0.8);
+    if (this.onGround && (st === 'idle' || st === 'blockstun' || st === 'intro' || st === 'wait' || st === 'victory')) {
+      const T = this.breathT, ph = this.side * 1.7;
+      const b = Math.sin(T * 2.1 + ph) * (1 + tired * 0.6);
+      const drift = Math.sin(T * 0.71 + ph) * Math.sin(T * 0.43 + 2); // slow, irregular weight shifts
+      addTo(p, 'chest', -b * 0.03); addTo(p, 'spine', b * 0.008, drift * 0.04, 0);
+      addTo(p, 'lSh', -b * 0.03, 0, b * 0.025 + drift * 0.03); addTo(p, 'rSh', -b * 0.03, 0, -b * 0.025 + drift * 0.02);
+      addTo(p, 'lEl', Math.sin(T * 1.3 + ph) * 0.04); addTo(p, 'rEl', Math.sin(T * 1.1 + ph + 1) * 0.04);
+      addTo(p, 'head', b * 0.015, drift * 0.04, 0);
+      addTo(p, 'hips', 0, 0, drift * 0.02);
+      p.hipY += b * 0.005;
+    }
+    // strikes: sink and coil in the wind-up, drive up from the floor through the hips on the
+    // strike, then carry through; a short kick back through the body when the blow connects
+    const m = st === 'attack' && this.move;
+    if (m && this.onGround && !m.air) {
+      const s = this.hero.attackSpeed, sT = m.startup * s, aT = m.active * s, t = this.stateT;
+      const amp = m.kind === 'light' ? 0.55 : 1;
+      if (t < sT) {
+        const k = Math.sin(Math.min(1, t / sT) * Math.PI / 2) * amp;
+        p.hipY -= 0.035 * k; addTo(p, 'lKnee', 0.16 * k); addTo(p, 'rKnee', 0.16 * k); addTo(p, 'spine', -0.06 * k); addTo(p, 'chest', -0.05 * k);
+      } else {
+        const span = aT + m.recovery * s * 0.6, u = Math.min(1, (t - sT) / span), k = (1 - u) * (1 - u) * amp;
+        p.hipY -= 0.02 * k; addTo(p, 'spine', 0.12 * k); addTo(p, 'chest', 0.06 * k); addTo(p, 'rHip', 0.14 * k); addTo(p, 'lKnee', 0.14 * k); addTo(p, 'rKnee', -0.08 * k);
+      }
+    }
+    if (this.connectT !== undefined) {
+      this.connectT += dt;
+      const k = Math.exp(-14 * this.connectT);
+      if (st === 'attack' && k > 0.02) { addTo(p, 'spine', -0.08 * k); addTo(p, 'chest', -0.07 * k); addTo(p, 'head', -0.06 * k); }
+    }
+    // hit recoil: a damped snap along the blow (high hits whip the head, body blows fold the
+    // trunk, low hits buckle the knees); much smaller through a block
+    const R = this.recoil;
+    if (R) {
+      R.t += dt;
+      const react = st === 'hit' || st === 'locked' || st === 'blockstun';
+      const k = Math.exp(-9 * R.t) * R.amp * (st === 'blockstun' ? 0.35 : 1);
+      if (!react || k < 0.01) this.recoil = null;
+      else {
+        const f = R.front, w = Math.sin(Math.min(1, R.t * 30) * Math.PI / 2); // reaches full snap in ~2 frames
+        const q = k * w;
+        if (R.h === 'high' || R.h === 'overhead') { addTo(p, 'head', -0.6 * q * f, 0.3 * q * R.twist, 0.15 * q * R.twist); addTo(p, 'chest', -0.22 * q * f); addTo(p, 'spine', -0.1 * q * f); }
+        else if (R.h === 'low') { addTo(p, 'spine', 0.3 * q); addTo(p, 'head', 0.2 * q); addTo(p, 'lKnee', 0.35 * q); addTo(p, 'rKnee', 0.35 * q); p.hipY -= 0.05 * q; }
+        else { addTo(p, 'spine', -0.3 * q * f); addTo(p, 'chest', -0.25 * q * f, 0.15 * q * R.twist, 0); addTo(p, 'head', 0.3 * q * f); }
+      }
+    }
+    return p;
+  }
+
+  // gaze: head, neck and upper chest track the opponent through neutral, walking, blocking and
+  // attacks, and the camera in the intro and on a win; let go while reeling
+  gaze(dt) {
+    const g = this.game, opp = g.opponentOf(this);
+    let want = 0, cam = false;
+    if (g.phase === 'intro' || this.state === 'victory' || this.faceCam) { want = 0.9; cam = true; }
+    else if (LOOK_AT_FOE.has(this.state) && opp) want = 1;
+    else if (this.state === 'ultimate' && opp) want = 0.5;
+    this.lookW = (this.lookW ?? 0) + (want - (this.lookW ?? 0)) * Math.min(1, dt * 6);
+    if (this.lookW < 0.01) return;
+    const goal = cam ? g.camera.position : opp ? opp.headPos() : null;
+    if (!goal) return;
+    this.lookPt = this.lookPt || goal.clone();
+    this.lookPt.lerp(goal, Math.min(1, dt * 8));
+    this.rig.lookAt(this.lookPt, this.lookW);
+  }
+
   // pose selection
   animate(dt) {
     const P = POSES;
@@ -464,15 +546,25 @@ export class Fighter {
         else if (Math.abs(this.vx) > 0.4) {
           pose = lerpPose(P.idle, P.idle, 0, this.tmpPose);
           const s = Math.sin(this.walkPhase), cc = Math.cos(this.walkPhase);
-          addTo(pose, 'lHip', s * 0.42); addTo(pose, 'rHip', -s * 0.42);
-          addTo(pose, 'lKnee', Math.max(0, cc) * 0.55); addTo(pose, 'rKnee', Math.max(0, -cc) * 0.55);
-          pose.hipY = Math.abs(cc) * 0.03 - 0.02;
-          rate = 20;
+          const heavy = Math.min(1, Math.max(0, (this.hero.weight || 1) - 1)); // big bodies roll more
+          // legs leave the staggered fight stance for a symmetric gait around a slightly
+          // forward-set, soft-kneed base, so both legs step alike
+          pose.lHip[0] = -0.1 + s * WALK_SWING; pose.rHip[0] = -0.1 - s * WALK_SWING; pose.lHip[2] = 0.1; pose.rHip[2] = -0.1;
+          // swing leg folds at the knee; the stance leg keeps a soft knee to take the weight
+          // (a hip angle that is falling is the leg travelling forward: that one lifts)
+          pose.lKnee[0] = Math.max(0, -cc) * 0.65 + 0.12; pose.rKnee[0] = Math.max(0, cc) * 0.65 + 0.12;
+          // heel strike (toes up) on the leading foot, toe-off (heel up) on the trailing one
+          pose.lFt = -s * 0.32 + Math.max(0, -cc) * 0.25; pose.rFt = s * 0.32 + Math.max(0, cc) * 0.25;
+          // weight transfer: hips drop as each heel lands and rise passing over the stance leg,
+          // the pelvis turns with the leading leg and dips toward the swing side, shoulders counter
+          const land = 1 - Math.abs(cc);
+          pose.hipY = -0.012 - land * (0.035 + 0.02 * heavy);
+          addTo(pose, 'hips', land * 0.03, s * (0.12 + 0.06 * heavy), cc * (0.05 + 0.04 * heavy));
+          addTo(pose, 'spine', 0.02 * land, -s * (0.09 + 0.05 * heavy), -cc * 0.03);
+          addTo(pose, 'lSh', s * 0.12); addTo(pose, 'rSh', -s * 0.12);
+          rate = 40; // track the cycle tightly: a lagging blend shortens the step and the feet skate
         } else {
-          pose = lerpPose(P.idle, P.idle, 0, this.tmpPose);
-          const br = Math.sin(performance.now() * 0.004 + this.side) * 0.04;
-          addTo(pose, 'spine', br); addTo(pose, 'lEl', -br * 2); addTo(pose, 'rEl', br * 2);
-          pose.hipY = br * 0.4;
+          pose = P.idle; // breathing and micro-motion come from layer()
         }
         break;
       case 'air': pose = this.vy > 2 ? P.jump : P.fall; rate = 12; break;
@@ -498,6 +590,7 @@ export class Fighter {
       case 'victory': pose = (t % 3 < 1.6) ? P.victory : P.taunt; rate = 6; break;
       default: pose = P.idle;
     }
+    pose = this.layer(pose, dt);
     if (this.rig.isModel) { const [key, opts] = this.animKey(); this.rig.setAnim(key, opts); }
     this.rig.update(pose, dt, rate);
     if (this.rig.setReach) {
@@ -516,6 +609,7 @@ export class Fighter {
       let d = targetRot - this.root.rotation.y;
       this.root.rotation.y += d * Math.min(1, dt * 18);
     }
+    this.gaze(dt);
     // facial expression and eye look
     if (this.rig.face) {
       this.rig.setExpression(this.exprOverride || this.expression());

@@ -79,6 +79,7 @@ Normal hit is Light, stronger hit is Heavy. Every ultimate needs a full meter, e
 - **Costumes:** painted color plus normal maps for fabric, armor plating, scale mail, rocky skin and veins.
 - **Faces:** the expressions change with the fight: focused, gritting teeth, shouting on attacks, wincing when hit, dazed when knocked down, smiling or laughing on a win, and a roar during ultimates. Eyes blink and track the opponent.
 - **Capes:** Thor's and Sentry's capes are simulated cloth on the built-in heroes.
+- **Body mechanics:** heads, necks and upper chests track the opponent (and the camera in intros and wins). The walk is matched to ground speed with heel strike, toe-off, hip drop and pelvis turn. Idle breathing quickens as the fight wears on. Strikes sink in the wind-up and drive from the hips. Hits snap the head or fold the body along the blow.
 - **Cinematics:** round 1 opens with face close-ups and name cards, and ultimates zoom in on the hero's face.
 - **Rendering:** MSAA anti-aliasing, bloom, image-based lighting and light color grading. If the game runs slowly, set Graphics quality to Medium or Low in Settings.
 

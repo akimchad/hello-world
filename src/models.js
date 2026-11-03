@@ -567,7 +567,13 @@ class ModelRig extends Rig {
       headAnchor.position.copy(head.worldToLocal(at));
     }
     J.head = headAnchor;
+    // gaze chain: each bone's forward (+Z in the rest pose) in its own space, for Rig.lookAt
+    const fwdOf = (b) => new V(0, 0, 1).applyQuaternion(b.getWorldQuaternion(new Q()).invert());
+    let neck = head && head.parent && head.parent.isBone && /^neck/.test(canonBone(head.parent.name)) ? head.parent : null;
+    if (neck === chest) neck = null;
+    const look = head ? [chest && chest !== hips && { b: chest, fwd: fwdOf(chest), w: 0.25, max: 0.28 }, neck && { b: neck, fwd: fwdOf(neck), w: 0.4, max: 0.4 }, { b: head, fwd: fwdOf(head), w: 1, max: 0.85 }].filter(Boolean) : null;
     super(root, body, J, { scale: target / 1.85, thigh: 0.45, shin: 0.44, headR: 0.115 });
+    this.lookChain = look; this.lookEye = headAnchor;
     this.isModel = true;
     this.headCenter = new V();
     this.anchors = { cast: rHand, cast2: lHand };
@@ -761,7 +767,8 @@ class ModelRig extends Rig {
         hips.updateMatrixWorld(true);
       }
     }
-    if (!R.curled) { R.curled = true; for (const f of R.fingers) f.rotation.z += /left/i.test(f.name) ? 1.1 : -1.1; }
+    // loose fist: knuckles curl most, the middle joints a little less, the tips least
+    if (!R.curled) { R.curled = true; for (const f of R.fingers) { const k = [0.8, 0.95, 0.6][+boneKey(f.name).slice(-1) - 1] ?? 0.8; f.rotation.z += /left/i.test(f.name) ? k : -k; } }
     if (O) this.updateOverlay(dt);
   }
 
