@@ -183,22 +183,8 @@ function seq(f, steps, t, run) {
 // ------------------------------------------------------------------
 // SPECIALS — start(f, g) then update(f, g, t, dt) returns false when done
 // ------------------------------------------------------------------
-// a bright additive lens flare: a soft radial glow plus a horizontal streak
-let flareTex = null;
-function flare(g, pos, color, size, life) {
-  if (!flareTex) {
-    const c = document.createElement('canvas'); c.width = c.height = 128;
-    const x = c.getContext('2d'), gr = x.createRadialGradient(64, 64, 0, 64, 64, 64);
-    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.2, 'rgba(255,255,255,0.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
-    x.fillStyle = gr; x.fillRect(0, 0, 128, 128);
-    flareTex = new THREE.CanvasTexture(c);
-  }
-  const grp = new THREE.Group(); grp.userData.disposeTree = true;
-  const mat = () => new THREE.SpriteMaterial({ map: flareTex, color, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, transparent: true });
-  const glow = new THREE.Sprite(mat()), streak = new THREE.Sprite(mat());
-  grp.add(glow, streak); grp.position.copy(pos);
-  g.fx.timed(grp, life, (m, k) => { const a = 1 - k; glow.scale.setScalar(size * (0.6 + 0.4 * a)); streak.scale.set(size * 3.2 * a, size * 0.14, 1); glow.material.opacity = a; streak.material.opacity = a; });
-}
+// lens flare (lives in Effects so ordinary hits can use it too)
+function flare(g, pos, color, size, life) { g.fx.flare(pos, color, size, life); }
 
 // a twin-layer energy beam (white core in a coloured glow) between two points
 function beamPair(color, radius = 0.12) {
@@ -255,20 +241,6 @@ function megaBolt(g, from, to, color) {
   g.fx.emit(to, { count: 30, color: 0xffffff, color2: color, speed: 9, life: 0.35, size: 0.2 });
 }
 
-// a Doombot: armoured green-cloaked silhouette with glowing eyes
-function doombot() {
-  const steel = new THREE.MeshStandardMaterial({ color: 0x5a6068, metalness: 0.9, roughness: 0.35 });
-  const cloak = new THREE.MeshStandardMaterial({ color: 0x1f4a24, roughness: 0.85, side: THREE.DoubleSide });
-  const eye = new THREE.MeshBasicMaterial({ color: 0x9fff7a });
-  const grp = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.62, 4, 10), steel); body.position.y = 1.05; grp.add(body);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 10), steel); head.position.y = 1.62; grp.add(head);
-  for (const s of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.022, 6, 6), eye); e.position.set(s * 0.05, 1.64, 0.12); grp.add(e); }
-  const cape = new THREE.Mesh(new THREE.ConeGeometry(0.42, 1.25, 12, 1, true), cloak); cape.position.set(0, 0.95, -0.05); grp.add(cape);
-  for (const s of [-1, 1]) { const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.06, 0.62, 8), steel); leg.position.set(s * 0.1, 0.31, 0); grp.add(leg); }
-  grp.userData.disposeTree = true;
-  return grp;
-}
 // a glowing arcane seal: gold and crimson rings, runes and Latin around the rim
 function arcaneSeal() {
   const c = document.createElement('canvas'); c.width = c.height = 512;
@@ -288,44 +260,12 @@ function arcaneSeal() {
   return m;
 }
 
-// Iron Man: micro-missile, orbital drop pod, Hulkbuster plates and the Proton Cannon
-const IM_RED = () => new THREE.MeshStandardMaterial({ color: 0x9a1410, metalness: 0.85, roughness: 0.25 });
-const IM_GOLD = () => new THREE.MeshStandardMaterial({ color: 0xd4a020, metalness: 0.9, roughness: 0.22 });
+// Iron Man: micro-missile
 function missileMesh() {
   const grp = new THREE.Group();
   const body = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.16, 6), new THREE.MeshStandardMaterial({ color: 0xd8d8dc, metalness: 0.7, roughness: 0.3 }));
   body.rotation.z = Math.PI / 2; grp.add(body);
   grp.add(glowOrb(0xff9030, 0.06)); grp.userData.disposeTree = true;
-  return grp;
-}
-function dropPod() {
-  const grp = new THREE.Group();
-  const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.75, 1.9, 14), IM_RED()); shell.position.y = 0.95; grp.add(shell);
-  const cap = new THREE.Mesh(new THREE.ConeGeometry(0.55, 0.6, 14), IM_GOLD()); cap.position.y = 2.2; grp.add(cap);
-  grp.userData.disposeTree = true;
-  return grp;
-}
-function busterArmor() {
-  const red = IM_RED(), gold = IM_GOLD();
-  const part = (geo, m) => new THREE.Mesh(geo, m);
-  const pieces = {
-    lHand: part(new THREE.BoxGeometry(0.3, 0.34, 0.3), red), rHand: part(new THREE.BoxGeometry(0.3, 0.34, 0.3), red),
-    lSh: part(new THREE.SphereGeometry(0.24, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), gold), rSh: part(new THREE.SphereGeometry(0.24, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), gold),
-    chest: part(new THREE.BoxGeometry(0.62, 0.42, 0.36), red), lFoot: part(new THREE.BoxGeometry(0.22, 0.2, 0.36), gold), rFoot: part(new THREE.BoxGeometry(0.22, 0.2, 0.36), gold),
-  };
-  const grp = new THREE.Group(); for (const p of Object.values(pieces)) { p.castShadow = true; grp.add(p); }
-  grp.userData.pieces = pieces; grp.userData.disposeTree = true;
-  return grp;
-}
-function protonCannonMesh() {
-  const grp = new THREE.Group();
-  const dark = new THREE.MeshStandardMaterial({ color: 0x2a2d33, metalness: 0.9, roughness: 0.35 });
-  const glow = new THREE.MeshBasicMaterial({ color: 0x8fe0ff });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.42, 0.42), IM_RED()); body.position.x = 0.1; grp.add(body);
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 1.5, 18), dark); barrel.rotation.z = -Math.PI / 2; barrel.position.x = 1.2; grp.add(barrel);
-  for (let i = 0; i < 4; i++) { const r = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.035, 8, 20), i % 2 ? glow : IM_GOLD()); r.rotation.y = Math.PI / 2; r.position.x = 0.65 + i * 0.32; grp.add(r); }
-  const muzzle = new THREE.Object3D(); muzzle.position.x = 1.98; grp.add(muzzle);
-  grp.userData.muzzle = muzzle; grp.userData.disposeTree = true;
   return grp;
 }
 
@@ -381,6 +321,73 @@ function holdProp(prop, at, dir) {
   prop.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(d, y, z));
 }
 
+// Iron Man's Mark L nanotech: a high-frequency energy blade (built along +X for holdProp),
+// a shoulder repulsor pod and a compact wrist plasma cannon
+function nanoBlade() {
+  const s = new THREE.Shape();
+  [[0, -0.03], [0.12, -0.05], [0.95, -0.025], [1.1, 0], [0.95, 0.025], [0.12, 0.05], [0, 0.03]].forEach(([x, y], i) => (i ? s.lineTo(x, y) : s.moveTo(x, y)));
+  const geo = new THREE.ExtrudeGeometry(s, { depth: 0.012, bevelEnabled: false }); geo.translate(0, 0, -0.006);
+  const core = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0xe8fdff, transparent: true }));
+  const glow = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x5fd8ff, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false }));
+  glow.scale.set(1.04, 2.6, 4);
+  const grp = new THREE.Group(); grp.add(glow, core); grp.userData.disposeTree = true;
+  return grp;
+}
+function nanoPod() {
+  const grp = new THREE.Group();
+  const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.26, 12), new THREE.MeshStandardMaterial({ color: 0x9a1410, metalness: 0.9, roughness: 0.25 }));
+  shell.rotation.z = Math.PI / 2; grp.add(shell);
+  const port = new THREE.Mesh(new THREE.CircleGeometry(0.065, 14), new THREE.MeshBasicMaterial({ color: 0xbff4ff }));
+  port.rotation.y = Math.PI / 2; port.position.x = 0.135; grp.add(port);
+  grp.userData.disposeTree = true;
+  return grp;
+}
+function nanoCannon() {
+  const grp = new THREE.Group();
+  const red = new THREE.MeshStandardMaterial({ color: 0x9a1410, metalness: 0.9, roughness: 0.22 }), gold = new THREE.MeshStandardMaterial({ color: 0xd4a020, metalness: 0.95, roughness: 0.2 });
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.1, 0.42, 16), red); barrel.rotation.z = -Math.PI / 2; barrel.position.x = 0.22; grp.add(barrel);
+  for (let i = 0; i < 3; i++) { const r = new THREE.Mesh(new THREE.TorusGeometry(0.1 - i * 0.008, 0.012, 8, 20), i === 2 ? new THREE.MeshBasicMaterial({ color: 0xbff4ff }) : gold); r.rotation.y = Math.PI / 2; r.position.x = 0.1 + i * 0.14; grp.add(r); }
+  grp.userData.disposeTree = true;
+  return grp;
+}
+
+// Doom's sorcery: a crimson-and-gold geometric rune circle, an emerald lance, a burning trail
+let runeTex = null;
+function runeCircle() {
+  if (!runeTex) {
+    const c = document.createElement('canvas'); c.width = c.height = 256;
+    const x = c.getContext('2d'); x.translate(128, 128); x.lineCap = 'round';
+    x.strokeStyle = '#ffcf50'; x.lineWidth = 6; x.beginPath(); x.arc(0, 0, 120, 0, Math.PI * 2); x.stroke();
+    x.strokeStyle = '#ff2e2e'; x.lineWidth = 4; x.beginPath(); x.arc(0, 0, 100, 0, Math.PI * 2); x.stroke();
+    // interlocking triangles (a hexagram) and a square, all inscribed
+    x.strokeStyle = '#ffcf50'; x.lineWidth = 4;
+    for (const off of [0, Math.PI]) { x.beginPath(); for (let i = 0; i <= 3; i++) { const a = off - Math.PI / 2 + (i * 2 * Math.PI) / 3; i ? x.lineTo(Math.cos(a) * 96, Math.sin(a) * 96) : x.moveTo(Math.cos(a) * 96, Math.sin(a) * 96); } x.stroke(); }
+    x.strokeStyle = '#ff2e2e'; x.lineWidth = 3; x.strokeRect(-45, -45, 90, 90);
+    x.fillStyle = '#ffd860';
+    for (let i = 0; i < 16; i++) { const a = (i / 16) * Math.PI * 2; x.save(); x.rotate(a); x.fillRect(-3, -114, 6, i % 2 ? 10 : 16); x.restore(); }
+    x.beginPath(); x.arc(0, 0, 14, 0, Math.PI * 2); x.fill();
+    runeTex = new THREE.CanvasTexture(c); runeTex.colorSpace = THREE.SRGBColorSpace;
+  }
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: runeTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  const grp = new THREE.Group(); grp.add(m); grp.userData.disposeTree = true;
+  return grp;
+}
+function emeraldLance() {
+  const grp = new THREE.Group();
+  const core = new THREE.Mesh(new THREE.ConeGeometry(0.06, 1.3, 8), new THREE.MeshBasicMaterial({ color: 0xeaffea }));
+  core.rotation.z = -Math.PI / 2; core.position.x = -0.2; grp.add(core);
+  const glow = new THREE.Mesh(new THREE.ConeGeometry(0.17, 1.6, 10), new THREE.MeshBasicMaterial({ color: 0x40ff60, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false }));
+  glow.rotation.z = -Math.PI / 2; glow.position.x = -0.3; grp.add(glow);
+  return grp;
+}
+function burnTrail(g, target, life) {
+  const holder = new THREE.Object3D();
+  attachFx(g, target, holder, life, (m, k) => {
+    const c = target.chestPos();
+    g.fx.emit(c.add(new THREE.Vector3((Math.random() - 0.5) * 0.4, (Math.random() - 0.4) * 0.8, 0.1)), { count: 2, color: 0x6aff60, color2: 0xd8ffb0, speed: 1.2, life: 0.4 * (1 - k * 0.5), size: 0.16, up: 1.6, gravity: -3 });
+  });
+}
+
 // pulsing symbiote biomass left rooted in a crater
 function biomassRoots(g, x, life) {
   const m = new THREE.MeshPhysicalMaterial({ color: 0x05050a, roughness: 0.15, clearcoat: 1, sheen: 0.5, sheenColor: new THREE.Color(0x4a5aa0) });
@@ -406,12 +413,12 @@ function endFlip(f) {
 // teardown for the scripted moves (also run when a move is interrupted or a round resets)
 const CLEAN = {
   surge(f) { const S = f.surge; f.surge = null; if (S && S.pr && S.pr.alive) S.pr.kill(); thorHammer(f, true); },
-  swarm(f, g) { const D = f.swarm; if (D) { (D.bots || []).forEach((b) => dropFx(g, b)); (D.beams || []).forEach((b) => dropFx(g, b)); } f.swarm = null; },
   barrage(f, g) { if (f.barrage) dropFx(g, f.barrage.beam); f.barrage = null; },
   tele(f) { endFlip(f); f.tele = null; },
   bif(f, g) { const J = f.bif; if (J) { dropFx(g, J.beam); dropFx(g, J.clouds); } f.bif = null; const o = g.opponentOf(f); if (o) o.frozen = false; },
   wrath(f, g) { const W = f.wrath; if (W) { dropFx(g, W.seal); dropFx(g, W.orb); dropFx(g, W.beam); (W.chains || []).forEach((c) => dropFx(g, c)); } f.wrath = null; const o = g.opponentOf(f); if (o) o.frozen = false; },
-  proton(f, g) { const P = f.proton; if (P) { dropFx(g, P.pod); dropFx(g, P.armor); dropFx(g, P.cannon); dropFx(g, P.beam); } f.proton = null; f.root.scale.setScalar(1); },
+  nano(f, g) { const N = f.nano; if (N) { [...(N.blades || []), ...(N.pods || [])].forEach((o) => dropFx(g, o)); dropFx(g, N.cannon); dropFx(g, N.beam); } f.nano = null; const o = g.opponentOf(f); if (o) o.frozen = false; },
+  mystic(f, g) { const M = f.mystic; if (M) (M.runes || []).forEach((r) => dropFx(g, r)); f.mystic = null; },
   beat(f, g) {
     const B = f.beat; if (B) { dropFx(g, B.bar); dropFx(g, B.rocket); dropFx(g, B.phone); } f.beat = null;
     f.faceCam = false; if (g.camFocus && g.camFocus.f === f) g.camFocus = null;
@@ -644,54 +651,47 @@ export const SPECIALS = {
     cleanup(f) { CLEAN.surge(f); },
   },
 
-  // DOOMBOT SWARM: a snap of the fingers, two Doombots rush in from either side and pin the foe,
-  // then Doom rises and burns through them with twin emerald beams
-  doombotSwarm: {
+  // SORCERER'S WRATH: green power floods the gauntlets, three crimson-and-gold rune circles
+  // flare in the air before Doom, and each fires a high-speed emerald lance; hits leave the foe
+  // trailing magical burn
+  mysticBolts: {
     update(f, g, t) {
-      const opp = g.opponentOf(f), GREEN = 0x7dff6a;
-      const D = f.swarm || (f.swarm = {});
-      if (t < 0.2) { f.setPose('castW'); if (!D.snap) { D.snap = true; g.audio.play('zap', 0.5); g.fx.emit(handPos(f), { count: 10, color: GREEN, speed: 3, life: 0.25, size: 0.15 }); } return true; }
-      if (!D.bots) {
-        D.x = opp.x;
-        D.bots = [-1, 1].map((s) => { const b = doombot(); b.userData.from = THREE.MathUtils.clamp(D.x + s * 6, -g.bounds - 1.5, g.bounds + 1.5); b.position.set(b.userData.from, 0, -0.15); b.rotation.y = -s * Math.PI / 2; g.fx.group.add(b); return b; });
-        g.audio.play('whoosh', 1);
+      const opp = g.opponentOf(f), GREEN = 0x5cff6a;
+      const M = f.mystic || (f.mystic = { shot: 0 });
+      f.setPose(t < 0.25 ? 'castW' : 'castBoth', 30);
+      g.fx.flashLight(handPos(f, 'cast'), GREEN, 5 + Math.min(1, t * 4) * 8, 0.05);
+      if (Math.random() < 0.5) { const h = handPos(f, Math.random() < 0.5 ? 'cast' : 'cast2'); g.fx.bolt(h, h.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.4, Math.random() * 0.4, 0)), GREEN, 0.05, 0.02, 0); }
+      if (!M.runes) {
+        g.audio.play('zap', 0.6); g.audio.play('beam', 0.4);
+        M.runes = [0, 1, 2].map((i) => { const r = runeCircle(); g.fx.group.add(r); r.userData.i = i; r.scale.setScalar(0.001); return r; });
       }
-      const k = Math.min(1, (t - 0.2) / 0.32);
-      D.bots.forEach((b, i) => {
-        const s = i ? 1 : -1;
-        b.position.x = THREE.MathUtils.lerp(b.userData.from, opp.x + s * 0.55 * opp.scale, k * k);
-        b.position.y = k < 1 ? Math.abs(Math.sin(t * 28)) * 0.06 : 0;
-        if (k < 1) g.fx.emit(new THREE.Vector3(b.position.x, 0.6, -0.1), { count: 1, color: 0x9fff7a, speed: 0.5, life: 0.2, size: 0.25 });
+      const base = f.chestPos();
+      M.runes.forEach((r) => {
+        const i = r.userData.i;
+        r.position.set(base.x + f.facing * (0.9 + i * 0.12) * f.scale, base.y + (i - 1) * 0.55 * f.scale, 0.25 + (i % 2) * 0.1);
+        r.rotation.set(0, f.facing * 0.55, t * (i % 2 ? -2.5 : 2.5));
+        const appear = Math.min(1, Math.max(0, (t - i * 0.07) / 0.18)), gone = t > 0.95 ? Math.max(0, 1 - (t - 0.95) * 4) : 1;
+        r.scale.setScalar(Math.max(0.001, appear * gone * (0.85 + i * 0.08) * f.scale));
+        r.children.forEach((c) => { c.material.opacity = 0.9 * appear * gone; });
       });
-      if (k >= 1 && !D.pinned) {
-        D.pinned = true;
-        g.zoneHit(f, { x0: opp.x - 0.7, x1: opp.x + 0.7, y0: 0, y1: 2.6 }, { id: newHitId(), dmg: 2, height: 'mid', stun: 0.9, blockstun: 0.35, push: 0, kind: 'special', sfx: 'heavy', color: GREEN, root: 1.0, srcX: f.x });
-        g.audio.play('block', 0.9);
+      // each rune fires an emerald lance in turn
+      while (M.shot < 3 && t >= 0.3 + M.shot * 0.12) {
+        const r = M.runes[M.shot++], p = r.position.clone();
+        const lance = emeraldLance(); lance.rotation.y = f.facing > 0 ? 0 : Math.PI;
+        g.spawnProjectile({ owner: f, x: p.x, y: p.y, vx: f.facing * 30, r: 0.3, life: 0.7, mesh: lance, trail: GREEN, ground: true,
+          hit: { dmg: 3.5, height: 'mid', stun: 0.42, blockstun: 0.2, push: 1.8, kind: 'special', sfx: 'zap', sfxVol: 0.6, color: GREEN },
+          onHitResult: (res, target) => {
+            flare(g, new THREE.Vector3(target.x, p.y, 0.5), GREEN, 1.6, 0.25);
+            if (res === 'hit') burnTrail(g, target, 1.3);
+          } });
+        g.audio.play('blast', 0.6);
+        g.fx.emit(p, { count: 14, color: 0xd8ffd0, color2: GREEN, dir: new THREE.Vector3(f.facing, 0, 0), spread: 0.4, speed: 7, life: 0.2, size: 0.18 });
+        flare(g, p.clone().setZ(0.5), GREEN, 1.1, 0.15);
       }
-      // Doom rises and fires from both gauntlets
-      f.setPose(t < 0.55 ? 'cast' : 'castBoth', 30);
-      f.vy = ((t > 0.5 && t < 1.25 ? 0.6 : 0) - f.y) * 10;
-      if (t > 0.66 && t < 1.15) {
-        if (!D.beams) { D.beams = [beamPair(GREEN, 0.1), beamPair(GREEN, 0.1)]; D.beams.forEach((b) => g.fx.group.add(b)); g.audio.play('beam', 0.7); D.tick = 0; }
-        const c = opp.chestPos();
-        D.beams[0].setEnds(handPos(f, 'cast'), c); D.beams[1].setEnds(handPos(f, 'cast2'), c.clone().add(new THREE.Vector3(0, 0.15, 0)));
-        D.beams.forEach((b) => b.flicker(t));
-        g.fx.emit(c, { count: 2, color: 0xd8ffd0, color2: GREEN, speed: 4, life: 0.2, size: 0.18 });
-        if (t >= 0.7 + D.tick * 0.14 && D.tick < 3) {
-          D.tick++;
-          const x0 = Math.min(f.x, opp.x) - 0.2, x1 = Math.max(f.x, opp.x) + 0.2;
-          g.zoneHit(f, { x0, x1, y0: 0.6, y1: 2.6 }, { id: newHitId(), dmg: 1.8, height: 'mid', stun: 0.35, blockstun: 0.18, push: D.tick === 3 ? 3.5 : 0.4, kind: 'special', sfx: 'zap', sfxVol: 0.6, color: GREEN, srcX: f.x, spark: 0.6 });
-        }
-      } else if (D.beams) { D.beams.forEach((b) => dropFx(g, b)); D.beams = null; }
-      if (t > 1.15 && !D.gone) {
-        D.gone = true;
-        D.bots.forEach((b) => { g.fx.emit(b.position.clone().setY(1), { dark: true, count: 18, color: 0x050805, color2: 0x1f4a24, speed: 3, life: 0.6, size: 0.4, up: 1 }); dropFx(g, b); });
-        D.bots = [];
-      }
-      if (t > 1.45) { CLEAN.swarm(f, g); return false; }
+      if (t > 1.2) { CLEAN.mystic(f, g); return false; }
       return true;
     },
-    cleanup(f, g) { CLEAN.swarm(f, g); },
+    cleanup(f, g) { CLEAN.mystic(f, g); },
   },
 
   // MICRO-MISSILE BARRAGE: twelve homing micro-missiles off the shoulders on fiery, smoky arcs,
@@ -1584,88 +1584,117 @@ export const ULTIMATES = {
     cleanup(f, g) { CLEAN.wrath(f, g); },
   },
 
-  // HOUSE PARTY PROTOCOL: an orbital drop pod slams down and bolts Hulkbuster plating onto Iron
-  // Man; a Proton Cannon assembles from his back, he braces on his thrusters, charges it and
-  // fires a beam that swallows most of the screen
-  protonCannon: {
+  // MARK L NANOTECH ARSENAL: nanites flow out over the suit and form glowing energy blades on
+  // both forearms and repulsor pods on the shoulders; a thruster dash and a blade flurry, a
+  // boost back for a homing micro-missile / plasma swarm from the pods, then in close again for a
+  // nanotech plasma cannon blast at point-blank range
+  nanoArsenal: {
     update(f, g, t, dt) {
-      const opp = g.opponentOf(f), BLUE = 0x6fd0ff;
-      const P = f.proton || (f.proton = {});
-      if (!P.pod) { P.pod = dropPod(); P.pod.position.set(f.x, 14, -0.35); g.fx.group.add(P.pod); g.audio.play('whoosh', 1.4); }
-      if (t < 0.4) {
-        const k = t / 0.4; P.pod.position.y = 14 * (1 - k * k);
-        g.fx.emit(P.pod.position.clone().add(new THREE.Vector3(0, 2.4, 0)), { count: 4, color: 0xffa040, color2: 0xffffff, speed: 2, life: 0.3, size: 0.4, up: 2 });
-        f.setPose('crouch'); return true;
+      const opp = g.opponentOf(f), CYAN = 0x8fefff, ORANGE = 0xff9030;
+      const N = f.nano || (f.nano = {});
+      const yaw = f.root.rotation.y, side = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+      // nanites forming: silver-red particles washing over the suit
+      if (t < 0.5) g.fx.emit(f.chestPos().add(new THREE.Vector3((Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 1.2, 0.1)), { count: 3, color: 0xc8ccd8, color2: 0xb01818, speed: 1.2, life: 0.3, size: 0.09 });
+      if (!N.blades) {
+        N.blades = [nanoBlade(), nanoBlade()]; N.pods = [nanoPod(), nanoPod()];
+        [...N.blades, ...N.pods].forEach((o) => { o.scale.setScalar(0.001); g.fx.group.add(o); });
+        g.audio.play('shield', 0.8); g.audio.play('beam', 0.5);
       }
-      if (!P.landed) {
-        P.landed = true;
-        const p = new THREE.Vector3(f.x, 0.05, 0);
-        g.fx.dust(p, 40); g.fx.ring(p, 0xffc080, 3, 0.4); g.audio.play('boom', 1.2); g.shake(0.8); g.rumble(0.8, 300);
-        g.fx.emit(p.clone().setY(1), { count: 30, color: 0xffd080, color2: 0xff6020, speed: 8, life: 0.35, size: 0.25 });
-        dropFx(g, P.pod); P.pod = null;
-        P.armor = busterArmor(); g.fx.group.add(P.armor); g.audio.play('shield', 0.9);
-      }
-      growTo(f, P.shrink ? 1 : 1.32, dt, 8);
-      // the plating rides the joints
-      if (P.armor) {
-        const pc = P.armor.userData.pieces, J = f.rig.J, s = f.root.scale.x;
-        const at = (o) => o.getWorldPosition(new THREE.Vector3());
-        const yaw = f.root.rotation.y, side = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-        if (J.lHand) pc.lHand.position.copy(at(J.lHand)); if (J.rHand) pc.rHand.position.copy(at(J.rHand));
-        const ch = at(J.chest);
-        pc.chest.position.copy(ch).add(new THREE.Vector3(0, -0.05, 0)); pc.chest.rotation.y = yaw;
-        pc.lSh.position.copy(ch).addScaledVector(side, 0.3 * s).add(new THREE.Vector3(0, 0.15 * s, 0));
-        pc.rSh.position.copy(ch).addScaledVector(side, -0.3 * s).add(new THREE.Vector3(0, 0.15 * s, 0));
-        if (J.lFoot) pc.lFoot.position.copy(at(J.lFoot)); if (J.rFoot) pc.rFoot.position.copy(at(J.rFoot));
-        for (const k of ['lFoot', 'rFoot', 'lHand', 'rHand']) pc[k].rotation.y = yaw;
-        P.armor.children.forEach((c) => c.scale.setScalar(s));
-      }
-      // the Proton Cannon assembles out of the nano-pack
-      const muzzle = new THREE.Vector3();
-      if (t > 0.55) {
-        if (!P.cannon) { P.cannon = protonCannonMesh(); g.fx.group.add(P.cannon); g.audio.play('shield', 0.7); }
-        const c = f.chestPos();
-        P.cannon.position.set(c.x + f.facing * 0.25, c.y - 0.15, 0.3);
-        P.cannon.rotation.y = f.facing > 0 ? 0 : Math.PI;
-        P.cannon.scale.setScalar(Math.min(1, (t - 0.55) / 0.35) * f.root.scale.x);
-        P.cannon.updateMatrixWorld(true); P.cannon.userData.muzzle.getWorldPosition(muzzle);
-        if (t < 0.9) g.fx.emit(c.clone().add(new THREE.Vector3(-f.facing * 0.3, 0.3, 0)), { count: 3, color: 0xffd060, color2: 0xff6020, speed: 3, life: 0.2, size: 0.12 });
-        // bracing: thrusters fire into the floor behind
-        g.fx.emit(new THREE.Vector3(f.x - f.facing * 0.35, 0.25, 0), { count: 3, color: 0xffa040, color2: 0xffffff, dir: new THREE.Vector3(-f.facing, -0.5, 0), speed: 9, life: 0.25, size: 0.22 });
-      }
-      f.setPose(t < 0.55 ? 'idle' : 'castBoth', 20);
-      // charging: blue energy funnels into the barrel
-      if (t > 1.1 && t < 1.7) {
-        if (!P.charging) { P.charging = true; g.audio.play('beam', 1); g.audio.play('ultstart', 0.6); }
-        for (let i = 0; i < 4; i++) { const a = Math.random() * Math.PI * 2, r = 0.9 + Math.random() * 0.4; const from = muzzle.clone().add(new THREE.Vector3(0, Math.cos(a) * r, Math.sin(a) * r)); g.fx.emit(from, { count: 1, color: BLUE, color2: 0xffffff, dir: muzzle.clone().sub(from), spread: 0.05, speed: r / 0.2, life: 0.2, size: 0.16 }); }
-        g.fx.flashLight(muzzle, BLUE, 4 + (t - 1.1) * 20, 0.05);
-      }
-      // the beam: white-hot core, plasma rings, heat haze, shaking camera and rattling HUD
-      if (t > 1.7 && t < 2.95) {
-        const end = new THREE.Vector3(f.facing > 0 ? g.bounds + 6 : -g.bounds - 6, muzzle.y, muzzle.z);
-        if (!P.beam) {
-          P.beam = new THREE.Group(); P.beam.userData.disposeTree = true;
-          for (const [r, col, op] of [[1.25, BLUE, 0.35], [0.75, 0x9fe8ff, 0.5], [0.32, 0xffffff, 1]]) { const b = line3(col, r); b.material.transparent = true; b.material.opacity = op; b.material.blending = THREE.AdditiveBlending; b.material.depthWrite = false; P.beam.add(b); }
-          g.fx.group.add(P.beam); P.tick = 0;
-          g.audio.play('blast', 1.4); g.audio.play('beam', 1.4); g.hud.rattle && g.hud.rattle(1.2); g.shake(0.8);
+      const grow = Math.min(1, t / 0.45) * f.scale;
+      const hands = [handPos(f, 'cast'), handPos(f, 'cast2')];
+      N.blades.forEach((b, i) => {
+        const swing = N.swingDir ? N.swingDir.clone() : new THREE.Vector3(f.facing, 0.25 - i * 0.4, 0);
+        holdProp(b, hands[i], swing); b.scale.setScalar(grow * (N.fade ?? 1));
+      });
+      const ch = f.chestPos();
+      N.pods.forEach((p, i) => { p.position.copy(ch).addScaledVector(side, (i ? -0.32 : 0.32) * f.scale).add(new THREE.Vector3(-f.facing * 0.05, 0.32 * f.scale, 0)); p.rotation.set(0, f.facing > 0 ? 0 : Math.PI, 0.5); p.scale.setScalar(grow * (N.fade ?? 1)); });
+      const thrust = (back) => g.fx.emit(new THREE.Vector3(f.x - f.facing * (back ? -0.2 : 0.25), f.y + 0.25, 0), { count: 3, color: ORANGE, color2: 0xffffff, dir: new THREE.Vector3(back ? f.facing : -f.facing, -0.4, 0), speed: 9, life: 0.22, size: 0.2 });
+      if (!f.locked) {
+        if (t < 0.5) { f.setPose('charge', 18); return true; }
+        if (t < 0.85) {
+          f.setPose('dash', 40); f.vx = f.facing * 22; f.noPush = true; thrust(false);
+          if (!f.hitId) { f.hitId = newHitId(); g.audio.play('whoosh', 1.3); }
+          const x0 = f.x, x1 = f.x + f.facing * 1.4 * f.scale;
+          const r = g.zoneHit(f, { x0: Math.min(x0, x1), x1: Math.max(x0, x1), y0: 0.4, y1: 2.0 }, { id: f.hitId, dmg: 2, height: 'mid', stun: 0.9, blockstun: 0.4, push: 1, kind: 'ult', sfx: 'slash', color: CYAN, chip: 0.25 });
+          if (r === 'hit' && opp.hp > 0) { f.vx = 0; f.noPush = false; startLock(f, g, opp); opp.frozen = true; }
+          else if (r === 'blocked' || Math.abs(f.x) >= g.bounds - 0.05) { f.vx = 0; f.noPush = false; f.ultT = Math.max(f.ultT, 0.85); }
+          return true;
         }
-        P.beam.children.forEach((b, i) => { b.setEnds(muzzle, end); b.scale.x = b.scale.y = 1 + Math.sin(t * 60 + i) * 0.1; });
-        g.shake(0.25); g.fx.flashLight(muzzle.clone().add(new THREE.Vector3(f.facing * 2, 0, 0)), BLUE, 18, 0.06);
-        g.fx.emit(muzzle, { count: 3, color: 0xffffff, color2: BLUE, dir: new THREE.Vector3(f.facing, 0, 0), speed: 22, spread: 0.3, life: 0.4, size: 0.4 });
-        if (t >= 1.75 + P.tick * 0.11 && P.tick < 11) {
-          P.tick++;
-          const final = P.tick === 11;
-          // the hit area runs from Iron Man himself (a foe standing inside the barrel's reach is in it)
-          g.zoneHit(f, { x0: Math.min(f.x, end.x), x1: Math.max(f.x, end.x), y0: muzzle.y - 1.3, y1: muzzle.y + 1.3 }, { id: newHitId(), dmg: final ? 5 : 1.8, height: 'mid', stun: 0.35, blockstun: 0.15, push: final ? 6 : 0.7, knockdown: final, launch: final ? 8 : 0, kind: 'ult', sfx: 'light', sfxVol: 0.5, color: BLUE, srcX: f.x, chip: 0.25, spark: 0.7 });
-          if (g.post) { const v = muzzle.clone().lerp(end, 0.25 + Math.random() * 0.3).project(g.camera); g.post.impactAt(new THREE.Vector2(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5), 0.03); }
-          g.rumble(0.7, 120);
+        f.vx *= 0.8; f.noPush = false; f.setPose('idle'); N.fade = Math.max(0.001, 1 - (t - 0.85) * 3);
+        if (t > 1.2) { CLEAN.nano(f, g); return false; }
+        return true;
+      }
+      const lt = t - f.lockT, held = opp.state === 'locked' && opp.lockedBy === f;
+      f.vx = 0;
+      // blade flurry: each cut sweeps the blades through a different arc
+      const cut = (dirY) => () => { N.swingDir = new THREE.Vector3(f.facing, dirY, 0); g.fx.ring(opp.chestPos().setZ(0.3), CYAN, 1.3, 0.16, 'face', 0.04); g.fx.emit(opp.chestPos(), { count: 16, color: 0xffffff, color2: CYAN, speed: 7, life: 0.25, size: 0.12 }); flare(g, opp.chestPos().setZ(0.5), CYAN, 1.2, 0.18); };
+      // boost back out of reach for the swarm, then in close for the cannon
+      const want = lt < 0.7 ? null : lt < 1.6 ? opp.x - f.facing * 3.6 : opp.x - f.facing * 1.15 * f.scale;
+      if (want !== null) { const dx = THREE.MathUtils.clamp(want, -g.bounds, g.bounds) - f.x; f.x += dx * Math.min(1, dt * 10); if (Math.abs(dx) > 0.15) thrust(Math.sign(dx) !== f.facing); }
+      // the swarm: homing micro-missiles and plasma bolts off the shoulder pods
+      if (lt > 0.85 && lt < 1.45) {
+        N.fired = N.fired || 0;
+        while (N.fired < 18 && lt >= 0.85 + N.fired * 0.03) {
+          const i = N.fired++, pod = N.pods[i % 2].position.clone(), plasma = i % 3 === 0;
+          const target = opp.chestPos().add(new THREE.Vector3((Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.8, 0));
+          const ctrl = pod.clone().lerp(target, 0.35).add(new THREE.Vector3(0, 1.4 + Math.random() * 1.4, (Math.random() - 0.5) * 2.4));
+          const mesh = plasma ? glowOrb(CYAN, 0.1) : missileMesh(), life = 0.35 + Math.random() * 0.15, prev = pod.clone();
+          mesh.userData.disposeTree = true; mesh.position.copy(pod);
+          g.fx.timed(mesh, life, (m, k) => {
+            const p = pod.clone().lerp(ctrl, k).lerp(ctrl.clone().lerp(target, k), k);
+            if (!plasma) { m.lookAt(p.clone().add(p.clone().sub(prev))); m.rotateY(-Math.PI / 2); }
+            prev.copy(p); m.position.copy(p);
+            if (plasma) g.fx.emit(p, { count: 1, color: CYAN, color2: 0xffffff, speed: 0.3, life: 0.15, size: 0.16 });
+            else { g.fx.emit(p, { dark: true, count: 1, color: 0x3a3a3a, color2: 0x707070, speed: 0.3, life: 0.45, size: 0.16, grow: 1 }); g.fx.emit(p, { count: 1, color: ORANGE, color2: 0xffe0a0, speed: 0.4, life: 0.1, size: 0.12 }); }
+            if (k >= 1) { g.fx.hitSpark(p, plasma ? CYAN : ORANGE, 0.5); g.fx.emit(p, { dark: true, count: 3, color: 0x2a2a2a, speed: 1.5, life: 0.4, size: 0.28 }); }
+          });
+          if (i % 4 === 0) g.audio.play('whoosh', 0.6);
         }
-      } else if (P.beam) { dropFx(g, P.beam); P.beam = null; }
-      if (t > 2.95) P.shrink = true;
-      if (t > 3.25) { CLEAN.proton(f, g); return false; }
+      }
+      // the nanotech plasma cannon: the right gauntlet folds into a barrel and charges
+      if (lt > 1.7) {
+        if (!N.cannon) { N.cannon = nanoCannon(); N.cannon.scale.setScalar(0.001); g.fx.group.add(N.cannon); g.audio.play('beam', 1.1); }
+        const h = handPos(f, 'cast');
+        holdProp(N.cannon, h, new THREE.Vector3(f.facing, 0, 0)); N.cannon.scale.setScalar(Math.min(1, (lt - 1.7) / 0.2) * f.scale);
+        N.muzzle = h.clone().add(new THREE.Vector3(f.facing * 0.45 * f.scale, 0, 0));
+        if (lt < 2.15) for (let i = 0; i < 3; i++) { const a = Math.random() * Math.PI * 2, r = 0.6 + Math.random() * 0.3; const from = N.muzzle.clone().add(new THREE.Vector3(0, Math.cos(a) * r, Math.sin(a) * r)); g.fx.emit(from, { count: 1, color: CYAN, color2: 0xffffff, dir: N.muzzle.clone().sub(from), spread: 0.05, speed: r / 0.18, life: 0.18, size: 0.13 }); }
+        if (lt < 2.15) g.fx.flashLight(N.muzzle, CYAN, 4 + (lt - 1.7) * 30, 0.05);
+      }
+      if (N.beam) { N.beam.setEnds(N.muzzle, N.muzzle.clone().add(new THREE.Vector3(f.facing * 4.5, 0, 0))); N.beam.flicker(lt); N.beam.scale.y = N.beam.scale.z = Math.max(0.01, 1 - (lt - 2.2) * 2.5); }
+      const blast = () => {
+        N.beam = beamPair(CYAN, 0.6); g.fx.group.add(N.beam);
+        const c = opp.chestPos();
+        flare(g, N.muzzle.clone().setZ(0.6), 0xffffff, 3, 0.35); flare(g, c.clone().setZ(0.6), CYAN, 2.6, 0.35);
+        g.fx.ring(c.clone().setZ(0.4), 0xffffff, 3.5, 0.35, 'face', 0.06); g.fx.ring(c.clone().setZ(0.35), CYAN, 5, 0.5, 'face', 0.08);
+        g.fx.emit(c, { count: 90, color: 0xffffff, color2: CYAN, dir: new THREE.Vector3(f.facing, 0.1, 0), spread: 0.6, speed: 16, life: 0.5, size: 0.22 });
+        g.fx.flashLight(c, CYAN, 40, 0.4);
+        g.audio.play('blast', 1.5); g.audio.play('boom', 1.2); g.shake(1.4); g.rumble(1, 450);
+        // heat haze rippling along the shot
+        if (g.post) for (let k = 0; k < 3; k++) { const v = N.muzzle.clone().lerp(c, k / 2).project(g.camera); g.post.impactAt(new THREE.Vector2(v.x * 0.5 + 0.5, v.y * 0.5 + 0.5), 0.05); }
+        opp.frozen = false;
+      };
+      let pose = 'idle';
+      if (lt < 0.62) pose = ['slash', 'hook', 'slashW', 'slash'][Math.min(3, Math.floor(lt / 0.16))];
+      else if (lt < 1.6) pose = 'charge';
+      else pose = lt < 2.2 ? 'cast' : 'castBoth';
+      f.setPose(pose, 40);
+      if (held && lt < 1.65) { opp.onGround = true; }
+      const done = lockCombo(f, g, t, [
+        { at: 0.1, dmg: 2.5, sfx: 'slash', color: CYAN, fx: cut(0.4) },
+        { at: 0.28, dmg: 2.5, sfx: 'slash', color: CYAN, fx: cut(-0.5) },
+        { at: 0.46, dmg: 2.5, sfx: 'slash', color: CYAN, fx: cut(0.1) },
+        { at: 1.05, dmg: 1.5, sfx: 'light', color: ORANGE },
+        { at: 1.2, dmg: 1.5, sfx: 'light', color: ORANGE },
+        { at: 1.35, dmg: 1.5, sfx: 'light', color: CYAN },
+        { at: 1.5, dmg: 1.5, sfx: 'light', color: ORANGE },
+        { at: 2.2, dmg: 9, sfx: 'heavy', color: CYAN, knockdown: true, launch: 9, final: true, spark: 2.6, fx: blast },
+        { at: 2.85 },
+      ]);
+      if (lt > 2.4) N.fade = Math.max(0.001, 1 - (lt - 2.4) * 2.5);
+      if (done) { CLEAN.nano(f, g); return false; }
       return true;
     },
-    cleanup(f, g) { CLEAN.proton(f, g); },
+    cleanup(f, g) { CLEAN.nano(f, g); },
   },
 
   // 4TH-WALL BEATDOWN: a blink-slash to grab the foe; Deadpool knocks on the screen (it cracks),

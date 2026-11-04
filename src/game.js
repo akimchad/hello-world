@@ -129,8 +129,11 @@ export class Match {
       def.ult = Math.min(100, def.ult + 2.5);
       att.ult = Math.min(100, att.ult + 1.5);
       def.stats.blocked++;
+      // the guard takes the blow: chest and arms are driven back (see Fighter.layer)
+      def.recoil = { t: 0, front: Math.sign(att.x - def.x) === def.facing ? 1 : -1, h: hit.height || 'mid', amp: Math.min(1, 0.4 + (hit.dmg || 0) * 0.06), twist: Math.random() < 0.5 ? -1 : 1 };
       this.fx.hitSpark(contact, 0x9fd8ff, 0.5, true, new THREE.Vector3(dir, 0.05, 0));
       this.audio.play(def.hero.id === 'cap' ? 'shield' : 'block', 0.9);
+      if (hit.kind !== 'light' && Math.random() < 0.7) this.audio.grunt(def.hero, 'effort', 0.55 + Math.min(0.4, (hit.dmg || 0) * 0.03)); // straining under the guard
       if (att.state === 'attack') this.hitstopPair(att, def, 0.05, 0.012); else this.hitstop(0.04);
       if (def.hp <= 0) this.onKO(att, def);
       return 'blocked';
@@ -263,6 +266,7 @@ export class Match {
     if (this.post) this.post.impact(0.35);
     this.hud.ultBanner(f.hero.ultimate.name, f.side);
     this.audio.play('ultstart');
+    this.audio.grunt(f.hero, 'effort', 1.25); // a full-throated shout as the ultimate starts
     this.audio.say(f.hero.ultimate.name);
   }
 

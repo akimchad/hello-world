@@ -878,9 +878,12 @@ function makeSprings(model, spec, B, chest, bodyR, s) {
   if (!groups.length) return null;
   const P = (b) => b.getWorldPosition(new V());
   const legs = [[B.lHip, B.lKnee, B.lFoot], [B.rHip, B.rKnee, B.rFoot]].filter((l) => l.every(Boolean));
+  // radii from body proportions, not the measured trunk depth (which includes backpacks and
+  // capes, and made the neck capsule so fat it shoved Gamora's hair up over her head)
+  const torso = THREE.MathUtils.clamp(bodyR, 0.1 * s, 0.16 * s);
   const capsules = () => {
-    const c = [{ a: P(B.hips), b: P(chest), r: bodyR * 1.1 }];
-    if (B.head) c.push({ a: P(chest), b: P(B.head), r: bodyR * 0.7 });
+    const c = [{ a: P(B.hips), b: P(chest), r: torso }];
+    if (B.head) c.push({ a: P(chest), b: P(B.head), r: 0.06 * s });
     for (const [h, k, f] of legs) { c.push({ a: P(h), b: P(k), r: 0.1 * s }); c.push({ a: P(k), b: P(f), r: 0.07 * s }); }
     return c;
   };

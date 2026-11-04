@@ -124,6 +124,23 @@ export class Effects {
     this.emit(pos, { count: 6, color, speed: 2, life: 0.18, size: 0.9 + power * 0.6, drag: 8 });
     this.ring(pos, color, 0.7 + power * 0.6, 0.2, 'face');
     this.flashLight(pos, color, 6 * power, 0.15);
+    // specials and ultimates land with a lens flare and a second, wider shockwave
+    if (power >= 1.2) { this.flare(pos.clone().setZ(pos.z + 0.5), color, 0.7 + power * 0.5, 0.18); this.ring(pos, 0xffffff, 1.2 + power * 0.8, 0.28, 'face', 0.05); }
+  }
+
+  // a bright additive lens flare: a soft glow plus a horizontal anamorphic streak
+  flare(pos, color, size, life) {
+    if (!this.flareTex) {
+      const c = document.createElement('canvas'); c.width = c.height = 128;
+      const x = c.getContext('2d'), gr = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+      gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.2, 'rgba(255,255,255,0.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+      x.fillStyle = gr; x.fillRect(0, 0, 128, 128);
+      this.flareTex = new THREE.CanvasTexture(c);
+    }
+    const mat = () => new THREE.SpriteMaterial({ map: this.flareTex, color, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, transparent: true });
+    const grp = new THREE.Group(), glow = new THREE.Sprite(mat()), streak = new THREE.Sprite(mat());
+    grp.add(glow, streak); grp.position.copy(pos); grp.userData.disposeTree = true;
+    this.timed(grp, life, (m, k) => { const a = 1 - k; glow.scale.setScalar(size * (0.6 + 0.4 * a)); streak.scale.set(size * 3.2 * a, size * 0.14, 1); glow.material.opacity = a; streak.material.opacity = a; });
   }
 
   // a thin additive streak along `dir` that shoots out of `pos` and fades: the "impact line" of a strike

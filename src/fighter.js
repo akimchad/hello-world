@@ -10,6 +10,8 @@ const FREE = new Set(['idle', 'air']);
 const MAX_VX = 18, MAX_VY = 16, CEILING = 6.5; // launch caps and the arena's invisible ceiling
 const WALK_SWING = 0.48; // hip swing (rad) either side in the walk cycle
 const STRIDE = 2 * 0.89 * Math.sin(WALK_SWING); // metres per step at scale 1 (driver leg length)
+// which way the core turns on each strike (+ = right-hand blows, - = left-hand)
+const TWIST = { jab: -1, cross: 1, hook: 1, heavy: 1, upper: 0.6, kick: 0.5, sweep: 0.4 };
 const LOOK_AT_FOE = new Set(['idle', 'air', 'attack', 'blockstun', 'special']);
 const STUNNED = new Set(['hit', 'locked', 'down', 'ko']);
 
@@ -501,9 +503,15 @@ export class Fighter {
       if (t < sT) {
         const k = Math.sin(Math.min(1, t / sT) * Math.PI / 2) * amp;
         p.hipY -= 0.035 * k; addTo(p, 'lKnee', 0.16 * k); addTo(p, 'rKnee', 0.16 * k); addTo(p, 'spine', -0.06 * k); addTo(p, 'chest', -0.05 * k);
+        const tw = TWIST[m.name] ?? 0;
+        addTo(p, 'spine', 0, -tw * 0.1 * k, 0); addTo(p, 'chest', 0, -tw * 0.08 * k, 0);
       } else {
         const span = aT + m.recovery * s * 0.6, u = Math.min(1, (t - sT) / span), k = (1 - u) * (1 - u) * amp;
         p.hipY -= 0.02 * k; addTo(p, 'spine', 0.12 * k); addTo(p, 'chest', 0.06 * k); addTo(p, 'rHip', 0.14 * k); addTo(p, 'lKnee', 0.14 * k); addTo(p, 'rKnee', -0.08 * k);
+        // the core turns through the blow: hips lead, spine and chest whip after (into the
+        // striking side), and wind back the other way in the anticipation
+        const tw = TWIST[m.name] ?? 0;
+        addTo(p, 'hips', 0, tw * 0.12 * k, 0); addTo(p, 'spine', 0, tw * 0.16 * k, 0); addTo(p, 'chest', 0, tw * 0.12 * k, 0);
       }
     }
     if (this.connectT !== undefined) {
@@ -518,7 +526,8 @@ export class Fighter {
     if (R) {
       R.t += dt;
       const react = st === 'hit' || st === 'locked' || st === 'blockstun';
-      const k = Math.exp(-9 * R.t) * R.amp * (st === 'blockstun' ? 0.35 : 1);
+      const k = Math.exp(-9 * R.t) * R.amp * (st === 'blockstun' ? 0.5 : 1);
+      if (st === 'blockstun' && k > 0.01) { addTo(p, 'chest', -0.2 * k * R.front); addTo(p, 'lEl', -0.25 * k); addTo(p, 'rEl', -0.25 * k); p.hipY -= 0.03 * k; }
       if (!react || k < 0.01) this.recoil = null;
       else {
         const f = R.front, w = Math.sin(Math.min(1, R.t * 30) * Math.PI / 2); // reaches full snap in ~2 frames
@@ -548,6 +557,53 @@ export class Fighter {
     this.rig.lookAt(this.lookPt, this.lookW);
   }
 
+  // walking legs by foot placement. Each foot's spot comes straight from the walk phase, which
+  // advances exactly with distance walked: through its stance (half a cycle) a foot slides back
+  // relative to the hips at the body's own speed, so it stays planted on one spot of floor; in
+  // the swing it lifts and travels to the next spot ahead. Two-bone IK turns each spot into hip
+  // and knee angles; the ankle rolls heel-strike → flat → heel-rise → toe-off; the hips drop as
+  // each heel lands, the pelvis turns with the leading leg and the shoulders counter-rotate.
+  walkLegs(p) {
+    const d = this.rig.retarget ? { thigh: 0.45, shin: 0.44, groundOffset: 0.09 } : this.rig.dims;
+    const A = d.thigh, B = d.shin, ankle = d.groundOffset ?? 0.06;
+    const heavy = Math.min(1, Math.max(0, (this.hero.weight || 1) - 1));
+    const phi = this.walkPhase, half = STRIDE * (A + B) / 0.89; // one step, in rig units
+    const along = Math.sin(FACE_ANGLE); // the body is turned toward the camera: world X is mostly forward
+    const drop = (1 + Math.cos(2 * phi)) / 2; // 1 as a heel lands (both feet down), 0 mid-stance
+    const H = ankle + (A + B) * 0.955 - drop * (0.03 + 0.02 * heavy);
+    const smooth = (x) => x * x * (3 - 2 * x);
+    const z = {};
+    for (const [side, off] of [['l', 0], ['r', Math.PI]]) {
+      const u = ((((phi + off) / Math.PI) % 2) + 2) % 2; // 0–1 stance, 1–2 swing
+      let fz, fy, ft;
+      if (u < 1) {
+        fz = half * (0.5 - u); fy = ankle;
+        ft = u < 0.15 ? 0.25 * (1 - u / 0.15) : u > 0.7 ? -0.45 * smooth((u - 0.7) / 0.3) : 0;
+      } else {
+        const w = u - 1;
+        fz = half * (smooth(w) - 0.5); fy = ankle + Math.sin(Math.PI * w) * (0.11 + 0.04 * heavy);
+        ft = w < 0.35 ? -0.45 * (1 - w / 0.35) : 0.25 * smooth((w - 0.35) / 0.65);
+      }
+      fz /= along;
+      z[side] = fz;
+      // two-bone IK in the leg's sagittal plane
+      const dz = fz, dy = H - fy, reach = (A + B) * 0.999;
+      const dist = Math.min(reach, Math.max(0.25, Math.hypot(dz, dy)));
+      const theta = Math.atan2(dz, dy);
+      const hipOpen = Math.acos(THREE.MathUtils.clamp((A * A + dist * dist - B * B) / (2 * A * dist), -1, 1));
+      const knee = Math.PI - Math.acos(THREE.MathUtils.clamp((A * A + B * B - dist * dist) / (2 * A * B), -1, 1));
+      p[side + 'Hip'][0] = -(theta + hipOpen) - p.hips[0];
+      p[side + 'Hip'][2] = side === 'l' ? 0.1 : -0.1;
+      p[side + 'Knee'][0] = knee;
+      p[side + 'Ft'] = ft;
+    }
+    p.hipY = 0;
+    const lead = (z.l - z.r) / Math.max(1e-3, half); // +1 left foot forward, -1 right
+    addTo(p, 'hips', drop * 0.03, -lead * (0.12 + 0.06 * heavy), lead * 0.04 * (1 + heavy));
+    addTo(p, 'spine', 0.02 * drop, lead * (0.09 + 0.05 * heavy), 0);
+    addTo(p, 'lSh', -lead * 0.12); addTo(p, 'rSh', lead * 0.12);
+  }
+
   // pose selection
   animate(dt) {
     const P = POSES;
@@ -562,24 +618,8 @@ export class Fighter {
         else if (this.crouching) pose = P.crouch;
         else if (Math.abs(this.vx) > 0.4) {
           pose = lerpPose(P.idle, P.idle, 0, this.tmpPose);
-          const s = Math.sin(this.walkPhase), cc = Math.cos(this.walkPhase);
-          const heavy = Math.min(1, Math.max(0, (this.hero.weight || 1) - 1)); // big bodies roll more
-          // legs leave the staggered fight stance for a symmetric gait around a slightly
-          // forward-set, soft-kneed base, so both legs step alike
-          pose.lHip[0] = -0.1 + s * WALK_SWING; pose.rHip[0] = -0.1 - s * WALK_SWING; pose.lHip[2] = 0.1; pose.rHip[2] = -0.1;
-          // swing leg folds at the knee; the stance leg keeps a soft knee to take the weight
-          // (a hip angle that is falling is the leg travelling forward: that one lifts)
-          pose.lKnee[0] = Math.max(0, -cc) * 0.65 + 0.12; pose.rKnee[0] = Math.max(0, cc) * 0.65 + 0.12;
-          // heel strike (toes up) on the leading foot, toe-off (heel up) on the trailing one
-          pose.lFt = -s * 0.32 + Math.max(0, -cc) * 0.25; pose.rFt = s * 0.32 + Math.max(0, cc) * 0.25;
-          // weight transfer: hips drop as each heel lands and rise passing over the stance leg,
-          // the pelvis turns with the leading leg and dips toward the swing side, shoulders counter
-          const land = 1 - Math.abs(cc);
-          pose.hipY = -0.012 - land * (0.035 + 0.02 * heavy);
-          addTo(pose, 'hips', land * 0.03, s * (0.12 + 0.06 * heavy), cc * (0.05 + 0.04 * heavy));
-          addTo(pose, 'spine', 0.02 * land, -s * (0.09 + 0.05 * heavy), -cc * 0.03);
-          addTo(pose, 'lSh', s * 0.12); addTo(pose, 'rSh', -s * 0.12);
-          rate = 40; // track the cycle tightly: a lagging blend shortens the step and the feet skate
+          this.walkLegs(pose);
+          rate = 75; // track the cycle tightly: a lagging blend lets planted feet drift
         } else {
           pose = P.idle; // breathing and micro-motion come from layer()
         }

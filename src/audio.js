@@ -330,15 +330,33 @@ export class Audio {
   thunder() { if (!this.ctx) return; this._pitch = 0.9 + Math.random() * 0.2; const t = this.ctx.currentTime; this.noiseHit(t, { dur: 2.2, f0: 300, f1: 60, gain: 0.5, attack: 0.08, out: this.ambGain }); this.tone(t, { f0: 50, f1: 28, dur: 1.8, gain: 0.4, out: this.ambGain }); this._pitch = 1; }
 
   // ---------- announcer ----------
+  // The announcer: a deep, warm, unhurried baritone. Browsers only offer their installed voices,
+  // so pick the best natural-sounding male voice available (neural/natural voices first, then
+  // the deeper classic ones), lower it gently rather than to a robotic growl, slow it down and
+  // give the calls dramatic pauses.
+  pickVoice() {
+    const voices = window.speechSynthesis.getVoices().filter((v) => /^en/i.test(v.lang));
+    if (!voices.length) return null;
+    const rank = [/(Guy|Davis|Christopher|Eric|Roger|Andrew|Brian|Steffan|Ryan|Thomas).*(Natural|Neural|Online)/i, /(Natural|Neural|Premium|Enhanced).*\b(male)\b/i,
+      /Grandpa \(English \(United States/i, /Reed \(English \(United States/i, /Evan|Nathan|Aaron|Tom\b/i, /Ralph/i, /Grandpa/i, /Reed/i, /Daniel/i, /Google UK English Male/i, /Alex\b/i, /Male/i];
+    for (const re of rank) { const v = voices.find((x) => re.test(x.name)); if (v) return v; }
+    return voices[0];
+  }
   say(text) {
     if (!this.settings.voice || !('speechSynthesis' in window)) return;
     try {
       window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.rate = 0.82; u.pitch = 0.35; u.volume = Math.min(1, this.settings.master * 1.2);
-      const voices = window.speechSynthesis.getVoices();
-      const v = voices.find((x) => /Daniel|Alex|Fred|Google UK English Male|Male/i.test(x.name)) || voices.find((x) => /^en/i.test(x.lang));
+      const line = text
+        .replace(/^Round (\d+)$/i, 'Round... $1.')
+        .replace(/^Final round$/i, 'Final... round.')
+        .replace(/^Fight!?$/i, 'Fight.')
+        .replace(/^K\.O\.$/i, 'Knock... out.')
+        .replace(/ wins$/i, '... wins.');
+      const u = new SpeechSynthesisUtterance(line);
+      const v = this.voice || (this.voice = this.pickVoice());
       if (v) u.voice = v;
+      const natural = v && /Natural|Neural|Online|Premium|Enhanced|Grandpa|Reed/i.test(v.name);
+      u.rate = 0.8; u.pitch = natural ? 0.82 : 0.68; u.volume = Math.min(1, this.settings.master * 1.25);
       window.speechSynthesis.speak(u);
     } catch (e) { /* speech is optional */ }
   }

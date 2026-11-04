@@ -6,6 +6,7 @@ export const STAGES = [
   { id: 'rooftop', name: 'Tower Rooftop', desc: 'Midnight over a neon skyline, searchlights sweeping the clouds.' },
   { id: 'space', name: 'Knowhere Outpost', desc: 'A mining platform adrift at the edge of the galaxy.' },
   { id: 'bifrost', name: 'Rainbow Bridge', desc: 'The shimmering bridge before the golden city.' },
+  { id: 'skyline', name: 'Skyline Steelworks', desc: 'A Manhattan skyscraper going up, in the golden hour before sunset.' },
 ];
 
 function skyDome(top, mid, bottom, extra = '') {
@@ -84,11 +85,15 @@ export function makeEnvironment(renderer, arena) {
 // shared building blocks
 // ------------------------------------------------------------------
 function pbr({ size = 1024, paint, height, rough, repeat = [1, 1], strength = 3, metal = 0, roughness = 0.8, emissive = null, color = 0xffffff, envI = 1 }) {
+  // floors and big surfaces are drawn at 1.5x and filtered at 16x anisotropy so they stay crisp at
+  // the grazing angle the fight camera sees them from (the painters scale with w/h)
+  if (size >= 1024 && size < 1536) size = 1536;
+  const aniso = 16;
   const c = makeCanvas(size, size, (g) => paint(g, size, size));
-  const m = new THREE.MeshStandardMaterial({ map: toTex(c, { repeat }), metalness: metal, roughness, color, envMapIntensity: envI });
-  if (height) m.normalMap = toTex(normalCanvas(heightCanvas(size, size, (g) => height(g, size, size)), strength), { srgb: false, repeat });
-  if (rough) { m.roughnessMap = toTex(makeCanvas(size, size, (g) => rough(g, size, size)), { srgb: false, repeat }); m.roughness = 1; }
-  if (emissive) { m.emissiveMap = toTex(makeCanvas(size, size, (g) => { g.fillStyle = '#000'; g.fillRect(0, 0, size, size); emissive(g, size, size); }), { repeat }); m.emissive = new THREE.Color(0xffffff); }
+  const m = new THREE.MeshStandardMaterial({ map: toTex(c, { repeat, aniso }), metalness: metal, roughness, color, envMapIntensity: envI });
+  if (height) m.normalMap = toTex(normalCanvas(heightCanvas(size, size, (g) => height(g, size, size)), strength), { srgb: false, repeat, aniso });
+  if (rough) { m.roughnessMap = toTex(makeCanvas(size, size, (g) => rough(g, size, size)), { srgb: false, repeat, aniso }); m.roughness = 1; }
+  if (emissive) { m.emissiveMap = toTex(makeCanvas(size, size, (g) => { g.fillStyle = '#000'; g.fillRect(0, 0, size, size); emissive(g, size, size); }), { repeat, aniso }); m.emissive = new THREE.Color(0xffffff); }
   return m;
 }
 const add = (parent, geo, m, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1, shadow = true) => {
@@ -669,7 +674,144 @@ function buildBifrost() {
   return { group, updaters, fog: new THREE.FogExp2(0x1a2550, 0.0038), exposure: 1.05, lights, sky, envFloor: 0x6a4a9a, rimColor: 0xffd9a0, rimStrength: 0.5 };
 }
 
-const BUILDERS = { rooftop: buildRooftop, space: buildSpace, bifrost: buildBifrost };
+// ------------------------------------------------------------------
+// SKYLINE STEELWORKS — a Manhattan skyscraper going up, at golden hour
+// ------------------------------------------------------------------
+// an I-beam along +X: two flanges and a web, extruded
+function iBeam(len, h = 0.36, w = 0.22, t = 0.035) {
+  const s = new THREE.Shape();
+  s.moveTo(-w / 2, -h / 2); s.lineTo(w / 2, -h / 2); s.lineTo(w / 2, -h / 2 + t); s.lineTo(t / 2, -h / 2 + t); s.lineTo(t / 2, h / 2 - t); s.lineTo(w / 2, h / 2 - t);
+  s.lineTo(w / 2, h / 2); s.lineTo(-w / 2, h / 2); s.lineTo(-w / 2, h / 2 - t); s.lineTo(-t / 2, h / 2 - t); s.lineTo(-t / 2, -h / 2 + t); s.lineTo(-w / 2, -h / 2 + t); s.closePath();
+  const geo = new THREE.ExtrudeGeometry(s, { depth: len, bevelEnabled: false });
+  geo.rotateY(Math.PI / 2); geo.translate(-len / 2, 0, 0);
+  return geo;
+}
+
+function buildSkyline() {
+  const group = new THREE.Group();
+  const updaters = [];
+  // sky: deep blue overhead warming to a golden horizon, a low sun with a wide glow, soft cloud banks
+  const SUN = new THREE.Vector3(-0.55, 0.16, -0.82).normalize();
+  const sky = skyDome(0x3d6fb0, 0xffc68a, 0x8a6e58, `
+    vec3 sd = normalize(vec3(-0.55, 0.16, -0.82));
+    float sa = max(dot(normalize(vP), sd), 0.0);
+    c += vec3(1.0, 0.72, 0.38) * pow(sa, 8.0) * 0.55 + vec3(1.0, 0.9, 0.7) * pow(sa, 220.0) * 3.0;
+    vec2 q = vec2(atan(vP.x, vP.z) * 2.2, y * 6.0);
+    float cl = fbm(q * 1.4 + vec2(time * 0.01, 0.0));
+    vec3 cloud = mix(vec3(1.0, 0.82, 0.62), vec3(1.0, 0.95, 0.88), pow(sa, 3.0));
+    c = mix(c, cloud, smoothstep(0.55, 0.85, cl) * smoothstep(0.02, 0.22, y) * (1.0 - smoothstep(0.35, 0.6, y)) * 0.75);`);
+  group.add(sky);
+  // the sun disc
+  const sun = new THREE.Mesh(new THREE.CircleGeometry(9, 32), new THREE.MeshBasicMaterial({ color: 0xfff2d0, fog: false }));
+  sun.position.copy(SUN).multiplyScalar(360); sun.lookAt(0, 0, 0); group.add(sun);
+
+  // poured concrete deck: board-formed seams, trowel swirls, chalk lines and hazard-striped edges
+  const floorM = pbr({ size: 1536, repeat: [5, 2.5], strength: 2.2, roughness: 1,
+    paint: (g, w, h) => {
+      g.fillStyle = '#9a948a'; g.fillRect(0, 0, w, h);
+      overlayNoise(g, w, h, noiseCanvas(256, 6, 801, 4, 1.4), 0.35, 'multiply');
+      overlayNoise(g, w, h, noiseCanvas(256, 48, 802, 2), 0.25);
+      const R = rng(803);
+      for (let i = 0; i < 9; i++) { const x = R() * w, y = R() * h, r = 60 + R() * 140; const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, 'rgba(70,64,56,0.35)'); gr.addColorStop(1, 'rgba(70,64,56,0)'); g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2); }
+      g.strokeStyle = 'rgba(40,36,32,0.55)'; g.lineWidth = 3;
+      for (let k = 0; k <= 4; k++) { g.beginPath(); g.moveTo(0, k * h / 4); g.lineTo(w, k * h / 4); g.stroke(); }
+      for (let k = 0; k <= 3; k++) { g.beginPath(); g.moveTo(k * w / 3, 0); g.lineTo(k * w / 3, h); g.stroke(); }
+      g.strokeStyle = 'rgba(40,110,200,0.55)'; g.lineWidth = 2; g.beginPath(); g.moveTo(0, h * 0.62); g.lineTo(w, h * 0.6); g.stroke(); // chalk line
+    },
+    height: (g, w, h) => { overlayNoise(g, w, h, noiseCanvas(256, 24, 804, 4), 0.5); g.strokeStyle = '#3a3a3a'; g.lineWidth = 4; for (let k = 0; k <= 4; k++) { g.beginPath(); g.moveTo(0, k * h / 4); g.lineTo(w, k * h / 4); g.stroke(); } for (let k = 0; k <= 3; k++) { g.beginPath(); g.moveTo(k * w / 3, 0); g.lineTo(k * w / 3, h); g.stroke(); } cracksA(g, w, h, 805, '#555'); },
+    rough: (g, w, h) => { g.fillStyle = '#e0e0e0'; g.fillRect(0, 0, w, h); overlayNoise(g, w, h, noiseCanvas(256, 8, 806, 4, 1.4), 0.4, 'multiply'); },
+  });
+  const floor = add(group, new THREE.PlaneGeometry(44, 22), floorM, 0, 0, -3, -Math.PI / 2, 0, 0, 1, 1, 1, false);
+  floor.receiveShadow = true;
+  // hazard-striped edge curbs front and back
+  const hazard = new THREE.MeshStandardMaterial({ map: toTex(makeCanvas(256, 32, (g, w, h) => { g.fillStyle = '#f0b81a'; g.fillRect(0, 0, w, h); g.fillStyle = '#16161a'; for (let x = -h; x < w; x += 32) { g.beginPath(); g.moveTo(x, h); g.lineTo(x + 16, h); g.lineTo(x + 16 + h, 0); g.lineTo(x + h, 0); g.fill(); } }), { repeat: [12, 1] }), roughness: 0.6 });
+  add(group, new THREE.BoxGeometry(44, 0.18, 0.3), hazard, 0, 0.09, 3.2);
+
+  // structural steel: columns and beams in red-oxide primer behind the fight, a second level above
+  const primer = new THREE.MeshStandardMaterial({ color: 0xa8482a, roughness: 0.55, metalness: 0.45 });
+  const galv = new THREE.MeshStandardMaterial({ color: 0x8a9098, roughness: 0.35, metalness: 0.85 });
+  for (const x of [-16, -8, 0, 8, 16]) {
+    const col = new THREE.Mesh(iBeam(9.5, 0.42, 0.3), primer); col.rotation.z = Math.PI / 2; col.position.set(x, 4.75, -6.5); col.castShadow = col.receiveShadow = true; group.add(col);
+    const col2 = col.clone(); col2.position.z = -11; group.add(col2);
+  }
+  for (const y of [4.6, 9.2]) for (const z of [-6.5, -11]) { const b = new THREE.Mesh(iBeam(33, 0.46, 0.28), primer); b.position.set(0, y, z); b.castShadow = b.receiveShadow = true; group.add(b); }
+  for (const x of [-16, -8, 0, 8, 16]) for (const y of [4.6, 9.2]) { const b = new THREE.Mesh(iBeam(4.5, 0.36, 0.22), primer); b.rotation.y = Math.PI / 2; b.position.set(x, y, -8.75); b.castShadow = true; group.add(b); }
+  // diagonal bracing
+  for (const x of [-12, 4]) { const br = add(group, new THREE.BoxGeometry(0.12, 10.4, 0.12), galv, x, 4.6, -6.6); br.rotation.z = 0.78; }
+  // stacked beams, a rebar bundle on timber dunnage, cement bags and a site barrier on the deck
+  for (let i = 0; i < 3; i++) { const b = new THREE.Mesh(iBeam(6, 0.34, 0.22), primer); b.position.set(-13 + (i % 2) * 0.1, 0.25 + i * 0.36, -4.4 + (i - 1) * 0.3); b.castShadow = b.receiveShadow = true; group.add(b); }
+  const timber = new THREE.MeshStandardMaterial({ color: 0x9a7448, roughness: 0.85 });
+  for (const x of [11, 13.5]) add(group, new THREE.BoxGeometry(0.2, 0.15, 1.6), timber, x, 0.075, -4.5);
+  const rebar = new THREE.MeshStandardMaterial({ color: 0x5a4030, roughness: 0.7, metalness: 0.6 });
+  for (let i = 0; i < 24; i++) { const r = add(group, new THREE.CylinderGeometry(0.02, 0.02, 4.2, 6), rebar, 12.25 + ((i % 6) - 2.5) * 0.06, 0.2 + Math.floor(i / 6) * 0.05, -4.5 + ((i * 7) % 5 - 2) * 0.04); r.rotation.z = Math.PI / 2; }
+  const bag = new THREE.MeshStandardMaterial({ color: 0xc8bfa8, roughness: 0.95 });
+  for (let i = 0; i < 7; i++) add(group, new THREE.BoxGeometry(0.62, 0.16, 0.42), bag, 6.5 + (i % 3) * 0.66, 0.08 + Math.floor(i / 3) * 0.16, -5.1, 0, (i % 2) * 0.08, 0);
+  const barrierM = new THREE.MeshStandardMaterial({ map: toTex(makeCanvas(128, 32, (g, w, h) => { for (let x = 0; x < w; x += 32) { g.fillStyle = (x / 32) % 2 ? '#f4f4f4' : '#ff6a10'; g.fillRect(x, 0, 32, h); } }), { repeat: [4, 1] }), roughness: 0.5 });
+  add(group, new THREE.BoxGeometry(3.6, 0.3, 0.12), barrierM, -6, 0.9, -5.4); for (const dx of [-1.6, 1.6]) add(group, new THREE.BoxGeometry(0.08, 0.95, 0.5), barrierM, -6 + dx, 0.47, -5.4);
+
+  // a tower crane: lattice mast and a long jib swinging very slowly
+  const crane = new THREE.Group(); crane.position.set(24, 0, -42); group.add(crane);
+  const yellow = new THREE.MeshStandardMaterial({ color: 0xf0b21a, roughness: 0.5, metalness: 0.5 });
+  const lattice = (len, axis) => {
+    const g = new THREE.Group();
+    for (const [a, b] of [[-0.9, -0.9], [0.9, -0.9], [-0.9, 0.9], [0.9, 0.9]]) { const m = add(g, new THREE.BoxGeometry(0.16, len, 0.16), yellow, a, len / 2, b, 0, 0, 0, 1, 1, 1, false); void m; }
+    for (let y = 0; y < len; y += 1.8) for (const r of [0, Math.PI / 2]) { const d = add(g, new THREE.BoxGeometry(0.08, 2.5, 0.08), yellow, 0, y + 0.9, 0, 0, r, 0.78, 1, 1, 1, false); d.translateZ(0.9); }
+    if (axis === 'x') g.rotation.z = Math.PI / 2; // lies along -X
+    return g;
+  };
+  crane.add(lattice(70));
+  const jib = new THREE.Group(); jib.position.y = 70; crane.add(jib);
+  const arm = lattice(52, 'x'); arm.position.x = 6; jib.add(arm);
+  add(jib, new THREE.BoxGeometry(5, 3, 3), new THREE.MeshStandardMaterial({ color: 0x6a6e74, roughness: 0.6 }), 8, -1, 0, 0, 0, 0, 1, 1, 1, false);
+  const hook = add(jib, new THREE.CylinderGeometry(0.03, 0.03, 30, 4), galv, -30, -15, 0, 0, 0, 0, 1, 1, 1, false); void hook;
+  updaters.push((dt, t) => { jib.rotation.y = -0.6 + Math.sin(t * 0.05) * 0.35; });
+
+  // the skyline: glass towers that catch the low sun, with a few in stone and brick
+  const glassMats = [0x8fb4d8, 0xc8b490, 0x7a9cc0, 0xa8c0d8].map((c) => new THREE.MeshStandardMaterial({ color: c, metalness: 0.95, roughness: 0.08, envMapIntensity: 1.6 }));
+  const stone = [0xb8a890, 0x9a7a62, 0xc8baa0].map((c, i) => new THREE.MeshStandardMaterial({ map: toTex(windowTexture(900 + i, { lit: 0.08, frame: '#5a5048' }), { repeat: [2, 4] }), color: c, roughness: 0.8 }));
+  const R = rng(907);
+  for (let i = 0; i < 46; i++) {
+    const x = -260 + R() * 520, z = -70 - R() * 220, w = 10 + R() * 22, h = 40 + Math.pow(R(), 1.5) * 170;
+    const glass = R() < 0.6;
+    const b = add(group, new THREE.BoxGeometry(w, h, w * (0.7 + R() * 0.6)), glass ? glassMats[i % 4] : stone[i % 3], x, h / 2 - 30, z, 0, R() * 0.6, 0, 1, 1, 1, false);
+    if (glass && R() < 0.5) add(group, new THREE.BoxGeometry(w * 0.6, h * 0.15, w * 0.5), b.material, x, h - 30 + h * 0.075, z, 0, b.rotation.y, 0, 1, 1, 1, false);
+  }
+  // a far ridge of hazy towers
+  const hazeM = new THREE.MeshBasicMaterial({ color: 0xd8b494, fog: true });
+  for (let i = 0; i < 60; i++) add(group, new THREE.BoxGeometry(14 + R() * 20, 30 + R() * 90, 10), hazeM, -380 + i * 13 + R() * 6, -10, -330 - R() * 40, 0, 0, 0, 1, 1, 1, false);
+
+  // sun shafts slanting through the steel, dust motes, wind-blown leaves and birds
+  for (const [x, z] of [[-10, -9], [-2, -10], [7, -9]]) updaters.push(lightShaft(group, { from: new THREE.Vector3(x - 14, 22, z - 16), to: new THREE.Vector3(x + 3, 0, z + 9), r0: 0.8, r1: 4.5, color: 0xffd8a0, intensity: 0.2 }));
+  updaters.push(motes(group, 220, [-16, 16, -7, 3, 7], 0xffe2b0, 0.05, 0.15));
+  const leafM = new THREE.MeshStandardMaterial({ color: 0xb87a2a, roughness: 0.8, side: THREE.DoubleSide });
+  const leaves = [...Array(26)].map(() => { const l = add(group, new THREE.PlaneGeometry(0.09, 0.06), leafM, -18 + Math.random() * 36, Math.random() * 5, -8 + Math.random() * 10, 0, 0, 0, 1, 1, 1, false); l.userData.s = 0.6 + Math.random() * 1.2; return l; });
+  updaters.push((dt, t) => leaves.forEach((l, i) => {
+    l.position.x += dt * l.userData.s * 2.2; l.position.y += Math.sin(t * 2 + i) * dt * 0.5 - dt * 0.15;
+    l.rotation.x += dt * 3 * l.userData.s; l.rotation.y += dt * 2;
+    if (l.position.x > 19 || l.position.y < 0.02) { l.position.set(-19, 1 + Math.random() * 5, -8 + Math.random() * 10); }
+  }));
+  const birdM = new THREE.MeshBasicMaterial({ color: 0x2a2420, side: THREE.DoubleSide, fog: true });
+  const birds = [...Array(9)].map((_, i) => {
+    const b = new THREE.Group();
+    for (const s of [-1, 1]) { const w = new THREE.Mesh(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(s * 0.9, 0, -0.2), new THREE.Vector3(s * 0.3, 0, 0.25)]), birdM); w.userData.s = s; b.add(w); }
+    b.userData = { r: 30 + (i % 3) * 8, h: 22 + (i % 4) * 3, sp: 0.07 + (i % 5) * 0.01, ph: i * 0.6 };
+    group.add(b); return b;
+  });
+  updaters.push((dt, t) => birds.forEach((b) => {
+    const u = b.userData, a = t * u.sp + u.ph;
+    b.position.set(-20 + Math.cos(a) * u.r, u.h + Math.sin(a * 2.3) * 1.5, -60 + Math.sin(a) * u.r * 0.4);
+    b.rotation.y = -a + Math.PI / 2;
+    const flap = Math.sin(t * 9 + u.ph * 3) * 0.6;
+    b.children.forEach((w) => { w.rotation.z = flap * w.userData.s; });
+  }));
+
+  // warm low sun as the key light (long shadows), cool sky fill, a soft bounce off the concrete
+  const lights = keyLights(group, { sky: 0x9cc4ff, ground: 0xb08a68, hemi: 0.75, key: 0xffd6a0, keyI: 3.2, keyPos: [-12, 10, 9], rim: 0xffb070, rimI: 3, fill: 0x9cc0ff, fillI: 0.6 });
+  updaters.push((dt, t) => { sky.material.uniforms.time.value = t; });
+  return { group, updaters, fog: new THREE.FogExp2(0xe8c49a, 0.0016), exposure: 1.0, lights, sky, envFloor: 0x8a7a68, rimColor: 0xffd0a0, rimStrength: 0.45 };
+}
+
+const BUILDERS = { rooftop: buildRooftop, space: buildSpace, bifrost: buildBifrost, skyline: buildSkyline };
 
 export function buildArena(id) {
   const a = (BUILDERS[id] || buildRooftop)();

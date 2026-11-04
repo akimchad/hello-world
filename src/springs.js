@@ -21,7 +21,11 @@ export class SpringBones {
     for (const g of groups) for (const b of g.bones) {
       const kid = b.children.filter((c) => c.isBone).sort((x, y) => count(y) - count(x))[0];
       if (!kid) continue;
-      this.links.push({ b, kid, rest: b.quaternion.clone(), len: kid.position.length() * worldScale(b), p: new V(), prev: new V(), init: false, P: g.params });
+      // zero-length links (control bones sitting on their child) have no direction to swing:
+      // turning them from a zero vector spins them at random, which threw Gamora's hair upward
+      const len = kid.position.length() * worldScale(b);
+      if (len < 0.01) continue;
+      this.links.push({ b, kid, rest: b.quaternion.clone(), len, p: new V(), prev: new V(), init: false, P: g.params });
     }
     this.t = 0;
   }
@@ -59,7 +63,9 @@ export class SpringBones {
       if (P.back) { const over = (l.p.x - goal.x) * fx + (l.p.z - goal.z) * fz - 0.08; if (over > 0) { l.p.x -= fx * over; l.p.z -= fz * over; } }
       l.p.sub(head).setLength(len).add(head);
       // turn the bone so its child sits on the particle
-      const from = goal.sub(head).normalize(), to = _c.copy(l.p).sub(head).normalize();
+      const from = goal.sub(head), to = _c.copy(l.p).sub(head);
+      if (from.lengthSq() < 1e-8 || to.lengthSq() < 1e-8) continue;
+      from.normalize(); to.normalize();
       const dq = _q.setFromUnitVectors(from, to);
       const wq = l.b.getWorldQuaternion(_q2);
       const pq = l.b.parent.getWorldQuaternion(new Q()).invert();
