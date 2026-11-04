@@ -58,12 +58,12 @@ That opens http://localhost:8000 in your browser. ES modules don't load from `fi
 | Hero | Special | Ultimate | Trait |
 |------|---------|----------|-------|
 | Spider-Man | Web Shot: pins the foe in place, then slows them | Web-Slinging Takedown: swings around the foe on web lines, then a dive-kick slam | Double jump |
-| Iron Man | Micro-Missile Barrage: twelve homing micro-missiles, then an overcharged Unibeam | House Party Protocol: an orbital drop pod bolts on Hulkbuster plating, then a Proton Cannon beam that fills most of the screen | Hover (hold Jump while falling) |
+| Iron Man | Micro-Missile Barrage: twelve homing micro-missiles, then an overcharged Unibeam | Mark L Nanotech Arsenal: nanotech blades and shoulder pods form for a blade flurry, a homing missile and plasma swarm, then a point-blank plasma cannon blast | Hover (hold Jump while falling) |
 | Thor | Mjölnir Kinetic Surge: hurls a lightning-wrapped Mjölnir through the foe, calls it back and clotheslines them as they're dragged in | Bifröst Judgment: a rainbow pillar lifts the foe for five lightning strikes, then a lightning dragon tears along the floor | Hammer heavy is a lunging overhead |
 | Hulk | Ground Breaker: local shockwave that staggers and slows | World-Breaker Thunderclap: a roar and an unstoppable grab, a slam into the floor behind him, three ankle-grab smashes, a throw across the arena, then a leaping Thunderclap that cracks the foe's health bar | Super armor on heavies, high HP |
 | Captain America | Shield Throw: returns like a boomerang | Star-Spangled Blitz: a bullet-dash shield rush, then a floor-ricochet shield bounce, spinning back kick, edge chop and rising smash, finished by a crater-making shield ground pound | Driving shield-slam heavy that lunges forward; shield block takes almost no chip |
 | Gamora | Godslayer Dash: dash-through slash | Blade Fury: teleporting slash flurry | Longest light attacks |
-| Doctor Doom | Doombot Swarm: two Doombots pin the foe while Doom rises and fires twin emerald beams | Monarch's Wrath: an arcane seal chains the foe, Doom siphons their ultimate meter into his own, then a beam ends in an emerald pillar | Force field: half chip damage when blocking |
+| Doctor Doom | Sorcerer's Wrath: crimson-and-gold runes flare in the air and fire three emerald lances that leave the foe burning | Monarch's Wrath: an arcane seal chains the foe, Doom siphons their ultimate meter into his own, then a beam ends in an emerald pillar | Force field: half chip damage when blocking |
 | Sentry | Golden Energy Blast: concentrated golden projectile | The Void — Shadow Erasure: the arena dims, shadow spreads across the floor and the foe is turned to shadow, dissolved and returned | Triple jump (flight) |
 | Groot | Root Snare: roots race along the floor and bind the foe | I Am Groot — Ancient Forest: grows giant, roots erupt around the foe, a long-reach strike, then a root shockwave | Branch arms reach furthest; regrows to half health out of combat; most HP |
 | Venom | Symbiote Lash: medium-range tendril strike | We Are Venom: tendrils seize the foe by the throat and slam them down, a bite, then a symbiote greatsword driven straight down | Heaviest hits of the fast fighters |
@@ -71,7 +71,7 @@ That opens http://localhost:8000 in your browser. ES modules don't load from `fi
 
 Normal hit is Light, stronger hit is Heavy. Every ultimate needs a full meter, empties it, can be blocked (chip damage only) and avoided, and hands control back when it ends.
 
-**Arenas:** Tower Rooftop (a rainy night city with lightning), Knowhere Outpost (a mining deck before a giant skull station) and Rainbow Bridge (a crystal bridge before the golden city).
+**Arenas:** Tower Rooftop (a rainy night city with lightning), Knowhere Outpost (a mining deck before a giant skull station), Rainbow Bridge (a crystal bridge before the golden city) and Skyline Steelworks (a Manhattan skyscraper under construction at golden hour, with sun shafts, a tower crane, drifting dust, leaves and birds).
 
 ## Visuals
 
@@ -79,7 +79,7 @@ Normal hit is Light, stronger hit is Heavy. Every ultimate needs a full meter, e
 - **Costumes:** painted color plus normal maps for fabric, armor plating, scale mail, rocky skin and veins.
 - **Faces:** the expressions change with the fight: focused, gritting teeth, shouting on attacks, wincing when hit, dazed when knocked down, smiling or laughing on a win, and a roar during ultimates. Eyes blink and track the opponent.
 - **Capes and hair:** capes (Doom, Sentry, Thor, Gamora) and Gamora's hair are spring-bone cloth with gravity, inertia, drag, wind and body colliders; Thor's bone-less model cape gets a generated bone grid. The built-in Thor and Sentry use Verlet cloth.
-- **Body mechanics:** heads, necks and upper chests track the opponent (and the camera in intros and wins). The walk is matched to ground speed with heel strike, toe-off, hip drop and pelvis turn. Idle breathing quickens as the fight wears on. Strikes sink in the wind-up and drive from the hips. Hits snap the head or fold the body along the blow.
+- **Body mechanics:** heads, necks and upper chests track the opponent (and the camera in intros and wins). The walk plants each foot on one spot of floor through its stance (two-bone IK) with heel strike, toe-off, hip drop and pelvis turn. Idle breathing quickens as the fight wears on. Strikes sink in the wind-up and drive from the hips. Hits snap the head or fold the body along the blow.
 - **Cinematics:** round 1 opens with face close-ups and name cards, and ultimates zoom in on the hero's face.
 - **Rendering:** MSAA anti-aliasing, bloom, image-based lighting and light color grading. If the game runs slowly, set Graphics quality to Medium or Low in Settings.
 
