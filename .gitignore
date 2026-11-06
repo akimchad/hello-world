@@ -5,3 +5,9 @@ __pycache__/
 # third-party character models and their textures stay local
 assets/models/*
 !assets/models/.gitkeep
+
+# Godot port: editor cache and the linked/copied third-party models stay local
+godot/.godot/
+godot/models/
+godot/**/*.import
+godot/audio/
