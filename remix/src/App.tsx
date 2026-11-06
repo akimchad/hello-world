@@ -10,6 +10,8 @@ import { buildSource } from './lib/parse'
 import { SAMPLES } from './lib/samples'
 import { describeTables, generateLocal, sanitizeSpec } from './lib/engine'
 import type { AppSpec, DataSource } from './types'
+import { ConnectedAccounts, type BusyState } from './components/ConnectedAccounts'
+import { disconnect, fetchConnectedData, fetchIntegrations, startConnect, type IntegrationStatus, type ProviderId } from './lib/integrations'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -26,6 +28,105 @@ export default function App() {
       .then((j) => setAi(Boolean(j.ai)))
       .catch(() => setAi(false))
   }, [])
+
+  /* ---------- connected accounts ---------- */
+  const [integrations, setIntegrations] = useState<IntegrationStatus[] | null>(null)
+  const [intLoadError, setIntLoadError] = useState<string | null>(null)
+  const [busy, setBusy] = useState<BusyState>({})
+  const [intErrors, setIntErrors] = useState<Partial<Record<ProviderId, string>>>({})
+  const sourcesRef = useRef(s.sources)
+  sourcesRef.current = s.sources
+
+  const refreshIntegrations = async () => {
+    try {
+      setIntLoadError(null)
+      const j = await fetchIntegrations()
+      setIntegrations(j.integrations)
+      return j.integrations
+    } catch (e) {
+      setIntLoadError(e instanceof Error ? e.message : 'Could not load connected accounts')
+      return null
+    }
+  }
+
+  const syncProvider = async (p: ProviderId) => {
+    setBusy((b) => ({ ...b, [p]: 'sync' }))
+    setIntErrors((e) => ({ ...e, [p]: undefined }))
+    try {
+      const res = await fetchConnectedData(p)
+      const existing = sourcesRef.current.find((x) => x.connector === p)
+      const src = buildSource(res.fileName, JSON.stringify(res.data), false, { connector: p, account: res.account, id: existing?.id })
+      a.upsertSource(src)
+      const rows = src.tables.reduce((n, t) => n + t.rows.length, 0)
+      notify(`Synced ${rows} records from ${p === 'github' ? 'GitHub' : 'YouTube'} (${res.account.name})`)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Sync failed'
+      setIntErrors((x) => ({ ...x, [p]: msg }))
+      if ((e as { disconnected?: boolean }).disconnected) await refreshIntegrations()
+    } finally {
+      setBusy((b) => ({ ...b, [p]: undefined }))
+    }
+  }
+
+  const connectProvider = (p: ProviderId) => {
+    setBusy((b) => ({ ...b, [p]: 'connect' }))
+    startConnect(p) // full-page redirect to the provider's consent screen
+  }
+
+  const disconnectProvider = async (p: ProviderId) => {
+    const label = p === 'github' ? 'GitHub' : 'YouTube'
+    if (!confirm(`Disconnect ${label}? REMIX will revoke its access and remove the synced ${label} data from this workspace.`)) return
+    setBusy((b) => ({ ...b, [p]: 'disconnect' }))
+    setIntErrors((e) => ({ ...e, [p]: undefined }))
+    try {
+      await disconnect(p)
+      a.removeConnectorSources(p)
+      notify(`${label} disconnected`)
+    } catch (e) {
+      setIntErrors((x) => ({ ...x, [p]: e instanceof Error ? e.message : 'Disconnect failed' }))
+    } finally {
+      await refreshIntegrations()
+      setBusy((b) => ({ ...b, [p]: undefined }))
+    }
+  }
+
+  // Load status; handle the OAuth redirect back (?connected=… or ?integration_error=…).
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    const connected = q.get('connected') as ProviderId | null
+    const error = q.get('integration_error')
+    const provider = q.get('provider') as ProviderId | null
+    if (connected || error) {
+      window.history.replaceState(null, '', window.location.pathname)
+      a.set({ view: 'data' })
+    }
+    if (error && (provider === 'github' || provider === 'youtube')) setIntErrors((e) => ({ ...e, [provider]: error }))
+    refreshIntegrations().then((list) => {
+      if (connected === 'github' || connected === 'youtube') {
+        const it = list?.find((x) => x.provider === connected)
+        if (it?.connected) {
+          notify(`Connected ${it.label}${it.account ? ` as ${it.account.name}` : ''}`)
+          syncProvider(connected)
+        }
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const connectedProviders = (integrations ?? []).filter((x) => x.connected).map((x) => x.provider)
+  const accountsPanel = (
+    <ConnectedAccounts
+      integrations={integrations}
+      loadError={intLoadError}
+      busy={busy}
+      errors={intErrors}
+      sources={s.sources}
+      onConnect={connectProvider}
+      onDisconnect={disconnectProvider}
+      onSync={syncProvider}
+      onRetry={refreshIntegrations}
+    />
+  )
 
   const notify = (m: string) => {
     setToast(m)
@@ -93,7 +194,7 @@ export default function App() {
   const activeApp = s.apps.find((x) => x.id === s.activeApp)
 
   const reset = () => {
-    if (confirm('Reset workspace? This removes all uploaded data and generated apps from this browser.')) {
+    if (confirm('Reset workspace? This removes all uploaded and synced data and generated apps from this browser. Connected accounts stay connected until you disconnect them.')) {
       a.reset()
       notify('Workspace reset')
     }
@@ -131,6 +232,8 @@ export default function App() {
           onOpenApp={a.openApp}
           onDeleteApp={a.deleteApp}
           onAllApps={() => nav('apps')}
+          accounts={accountsPanel}
+          connected={connectedProviders}
         />
       )}
 
@@ -156,7 +259,7 @@ export default function App() {
       {s.view === 'data' && (
         <div className="mx-auto max-w-[1240px] px-4 py-10 sm:px-6">
           <h1 className="text-2xl font-semibold tracking-tight">Data Sources</h1>
-          <p className="mb-6 text-[13px] text-muted">Upload JSON or CSV exports. Everything is parsed in your browser; tick “Use” to include a source in your next app.</p>
+          <p className="mb-6 text-[13px] text-muted">Connect your accounts or upload JSON/CSV exports, then tick “Use” to include a source in your next app. OAuth tokens stay on the server; synced data and files live in this browser.</p>
           <DataSection
             sources={s.sources}
             selected={s.selected}
@@ -167,6 +270,8 @@ export default function App() {
             onRemove={a.removeSource}
             onToggle={a.toggleSelected}
             onLoadSample={(k) => loadSample(k)}
+            accounts={accountsPanel}
+            connected={connectedProviders}
           />
         </div>
       )}
@@ -208,7 +313,7 @@ export default function App() {
               <div className="flex-1">
                 <div className="font-medium">Privacy</div>
                 <p className="mt-1 text-[13px] text-muted">
-                  Data and apps live in this browser's local storage. When Claude is enabled, only field names, types, a few sample values and three sample rows per table are sent to the server to design your app. AI output is never executed as code.
+                  Uploaded files, synced account data and apps live in this browser's local storage. OAuth tokens for connected accounts are stored only on the REMIX server, encrypted (AES-256-GCM), and are revoked when you disconnect. When Claude is enabled, only field names, types, a few sample values and three sample rows per table are sent to the server to design your app. AI output is never executed as code.
                 </p>
               </div>
             </div>

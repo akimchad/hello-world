@@ -255,8 +255,10 @@ export function DashboardWidget(props: {
     }
     case 'cards': {
       const limit = compact ? 6 : 9
-      const shown = expanded ? rows : rows.slice(0, limit)
-      meta = `${rows.length} ${rows.length === 1 ? 'item' : 'items'}`
+      const m = w.metricField
+      const ranked = m ? [...rows].sort((x, y) => (Number(y[m]) || 0) - (Number(x[m]) || 0)) : rows
+      const shown = expanded ? ranked : ranked.slice(0, limit)
+      meta = `${rows.length} ${rows.length === 1 ? 'item' : 'items'}${m ? ` · ranked by ${humanize(m).toLowerCase()}` : ''}`
       body = rows.length ? (
         <>
           <div className={`grid gap-3 ${w.size >= 3 ? 'sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'}`}>

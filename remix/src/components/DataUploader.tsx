@@ -78,6 +78,7 @@ export function SourceList(props: {
   onToggle: (id: string) => void
   onRemove: (id: string) => void
   onPreview: (id: string) => void
+  connected?: string[]
 }) {
   if (!props.sources.length)
     return (
@@ -99,17 +100,29 @@ export function SourceList(props: {
               props.previewId === s.id ? 'border-line-2 bg-panel-2' : 'border-line hover:border-line-2'
             }`}
           >
-            <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-line-2 ${s.format === 'json' ? 'text-amber-300' : 'text-emerald-300'}`}>
-              <SourceIcon s={s} />
-            </div>
+            {s.account?.avatar ? (
+              <img src={s.account.avatar} alt="" referrerPolicy="no-referrer" className="h-9 w-9 shrink-0 rounded-lg border border-line-2 object-cover" />
+            ) : (
+              <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-line-2 ${s.format === 'json' ? 'text-amber-300' : 'text-emerald-300'}`}>
+                <SourceIcon s={s} />
+              </div>
+            )}
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="truncate text-[13px] font-medium">{s.fileName}</span>
                 {s.sample && <span className="rounded border border-line-2 px-1.5 py-px font-mono text-[9px] uppercase tracking-wider text-muted">Demo data</span>}
+                {s.connector &&
+                  (props.connected?.includes(s.connector) ? (
+                    <span className="rounded border border-emerald-400/30 px-1.5 py-px font-mono text-[9px] uppercase tracking-wider text-emerald-300 light:text-emerald-700">Live · {s.connector}</span>
+                  ) : (
+                    <span className="rounded border border-amber-400/30 px-1.5 py-px font-mono text-[9px] uppercase tracking-wider text-amber-300 light:text-amber-700" title="This is a saved snapshot; the account is no longer connected">
+                      Snapshot · disconnected
+                    </span>
+                  ))}
               </div>
               <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted">
                 <CheckCircle2 size={11} className="text-emerald-400" />
-                Parsed · {formatBytes(s.size)} · {s.tables.length} table{s.tables.length > 1 ? 's' : ''} · {rows} rows
+                {s.connector ? 'Synced' : 'Parsed'} · {formatBytes(s.size)} · {s.tables.length} table{s.tables.length > 1 ? 's' : ''} · {rows} rows
               </div>
             </div>
             <label className="flex items-center gap-1.5 text-[11px] text-muted" onClick={(e) => e.stopPropagation()} title="Use this source when generating">

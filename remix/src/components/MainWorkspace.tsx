@@ -26,10 +26,20 @@ export function DataSection(props: {
   onRemove: (id: string) => void
   onToggle: (id: string) => void
   onLoadSample: (key: string) => void
+  accounts?: React.ReactNode
+  connected?: string[]
 }) {
   const [previewId, setPreviewId] = useState<string | null>(null)
   const preview = props.sources.find((s) => s.id === previewId) ?? props.sources[0]
   return (
+    <div className="space-y-5">
+      {props.accounts && (
+        <div>
+          <div className="mb-2.5 font-mono text-[10.5px] uppercase tracking-[0.14em] text-faint">Connected accounts</div>
+          {props.accounts}
+        </div>
+      )}
+      {props.accounts && <div className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-faint">Files</div>}
     <div className="grid gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
       <div className="space-y-4">
         <DataUploader onAdd={props.onAdd} compact />
@@ -46,9 +56,10 @@ export function DataSection(props: {
             </span>
           ))}
         </div>
-        <SourceList sources={props.sources} selected={props.selected} previewId={preview?.id ?? null} onToggle={props.onToggle} onRemove={props.onRemove} onPreview={setPreviewId} />
+        <SourceList sources={props.sources} selected={props.selected} previewId={preview?.id ?? null} onToggle={props.onToggle} onRemove={props.onRemove} onPreview={setPreviewId} connected={props.connected} />
       </div>
-      <DataPreview key={preview?.id} source={preview} />
+      <DataPreview key={preview?.id + String(preview?.uploadedAt)} source={preview} />
+    </div>
     </div>
   )
 }
@@ -68,6 +79,8 @@ export function MainWorkspace(props: {
   onOpenApp: (id: string) => void
   onDeleteApp: (id: string) => void
   onAllApps: () => void
+  accounts?: React.ReactNode
+  connected?: string[]
 }) {
   const attached = props.sources.filter((s) => props.selected.includes(s.id))
   return (
@@ -150,7 +163,7 @@ export function MainWorkspace(props: {
           <h2 className="text-lg font-medium tracking-tight">Your data</h2>
           <span className="text-[13px] text-muted">— parsed locally in your browser</span>
         </div>
-        <DataSection sources={props.sources} selected={props.selected} onAdd={props.onAdd} onRemove={props.onRemove} onToggle={props.onToggle} onLoadSample={(k) => props.onLoadSample(k)} />
+        <DataSection sources={props.sources} selected={props.selected} onAdd={props.onAdd} onRemove={props.onRemove} onToggle={props.onToggle} onLoadSample={(k) => props.onLoadSample(k)} accounts={props.accounts} connected={props.connected} />
       </section>
 
       {props.apps.length > 0 && (

@@ -159,8 +159,13 @@ export function profileRows(rows: Row[]): Field[] {
   return fields
 }
 
-export function buildSource(fileName: string, text: string, sample = false): DataSource {
-  const id = uid()
+export function buildSource(
+  fileName: string,
+  text: string,
+  sample = false,
+  extra: Pick<DataSource, 'connector' | 'account'> & { id?: string } = {},
+): DataSource {
+  const id = extra.id ?? uid()
   const ext = fileName.toLowerCase().split('.').pop()
   const base = fileName.replace(/\.[^.]+$/, '')
   let raw: { name: string; rows: Row[] }[]
@@ -184,6 +189,7 @@ export function buildSource(fileName: string, text: string, sample = false): Dat
     sample,
     tables,
     profile,
+    ...(extra.connector ? { connector: extra.connector, account: extra.account } : {}),
   }
 }
 

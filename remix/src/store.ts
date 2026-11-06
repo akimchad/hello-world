@@ -51,6 +51,17 @@ export function useWorkspace() {
   const actions = {
     set,
     addSource: (src: DataSource) => set((s) => ({ sources: [src, ...s.sources], selected: [...new Set([src.id, ...s.selected])] })),
+    /** Insert or replace (same id) — used when re-syncing a connected account so existing apps keep working. */
+    upsertSource: (src: DataSource) =>
+      set((s) => ({
+        sources: s.sources.some((x) => x.id === src.id) ? s.sources.map((x) => (x.id === src.id ? src : x)) : [src, ...s.sources],
+        selected: [...new Set([src.id, ...s.selected])],
+      })),
+    removeConnectorSources: (connector: 'github' | 'youtube') =>
+      set((s) => {
+        const gone = new Set(s.sources.filter((x) => x.connector === connector).map((x) => x.id))
+        return { sources: s.sources.filter((x) => !gone.has(x.id)), selected: s.selected.filter((x) => !gone.has(x)) }
+      }),
     removeSource: (id: string) => set((s) => ({ sources: s.sources.filter((x) => x.id !== id), selected: s.selected.filter((x) => x !== id) })),
     toggleSelected: (id: string) => set((s) => ({ selected: s.selected.includes(id) ? s.selected.filter((x) => x !== id) : [...s.selected, id] })),
     saveApp: (app: AppSpec) => set((s) => ({ apps: [app, ...s.apps.filter((a) => a.id !== app.id)], activeApp: app.id, view: 'app' })),

@@ -47,6 +47,14 @@ const tokens = (s: string) =>
     .filter((w) => w.length > 2)
     .map((w) => w.replace(/(ies)$/, 'y').replace(/s$/, ''))
 
+const ALIASES: Record<string, string[]> = {
+  repository: ['project', 'repo', 'code', 'github'],
+  activity: ['commit', 'contribution', 'event', 'recent'],
+  video: ['content', 'upload', 'post', 'youtube', 'channel'],
+  subscription: ['channel', 'follow', 'creator'],
+  playlist: ['collection', 'list'],
+}
+
 interface Profile {
   t: Table
   name?: Field
@@ -84,6 +92,8 @@ function profileTable(t: Table, promptTokens: string[]): Profile {
   else if (date && n >= 8 && (!name || name.distinct < n * 0.7 || /activity|event|log|history|commit/.test(tn))) kind = 'events'
   else if (progress && !status && n <= 15) kind = 'goals'
   const words = new Set(tokens([t.name, ...f.map((x) => x.name)].join(' ')))
+  // Everyday words people use for connected-account tables.
+  for (const [k, al] of Object.entries(ALIASES)) if (words.has(k)) al.forEach((a) => words.add(a))
   const relevance = promptTokens.filter((w) => words.has(w)).length
   return { t, name, status, lang, cat, date, progress, done, desc, tags, priority, metrics, kind, relevance }
 }

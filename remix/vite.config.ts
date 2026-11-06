@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import type { IncomingMessage } from 'node:http'
 import { aiAvailable, generateWithClaude } from './server/ai'
+import { integrationsMiddleware } from './server/integrations'
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -19,6 +20,10 @@ function readBody(req: IncomingMessage): Promise<string> {
 // Server-side API. The Anthropic key only ever lives in this Node process.
 function remixApi(): Plugin {
   const mount: Plugin['configureServer'] = (server) => {
+    // OAuth (GitHub, YouTube) + connected-account data. Tokens never leave this process.
+    server.middlewares.use((req, res, next) => {
+      integrationsMiddleware(req, res, next).catch(next)
+    })
     server.middlewares.use('/api/status', (_req, res) => {
       res.setHeader('content-type', 'application/json')
       res.end(JSON.stringify({ ai: aiAvailable(), model: aiAvailable() ? 'claude-opus-5-5' : null }))
@@ -48,7 +53,19 @@ function remixApi(): Plugin {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']) if (env[k] && !process.env[k]) process.env[k] = env[k]
+  const SERVER_VARS = [
+    'ANTHROPIC_API_KEY',
+    'ANTHROPIC_AUTH_TOKEN',
+    'GITHUB_CLIENT_ID',
+    'GITHUB_CLIENT_SECRET',
+    'GITHUB_INCLUDE_PRIVATE',
+    'GOOGLE_CLIENT_ID',
+    'GOOGLE_CLIENT_SECRET',
+    'REMIX_SESSION_SECRET',
+    'REMIX_BASE_URL',
+  ]
+  // Server-only: loaded into process.env, never exposed to client code (no VITE_ prefix).
+  for (const k of SERVER_VARS) if (env[k] && !process.env[k]) process.env[k] = env[k]
   return {
     plugins: [react(), tailwindcss(), remixApi()],
     server: { port: 5180 },

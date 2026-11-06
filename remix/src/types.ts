@@ -38,6 +38,9 @@ export interface DataSource {
   format: 'json' | 'csv'
   uploadedAt: number
   sample: boolean
+  /** Set when this source was synced live from a connected account (not an upload). */
+  connector?: 'github' | 'youtube'
+  account?: { name: string; handle?: string; avatar?: string }
   tables: Table[]
   profile?: Record<string, unknown>
 }
