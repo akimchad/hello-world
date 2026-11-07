@@ -1,7 +1,8 @@
 import { useRef } from 'react'
 import { ArrowUp, Cpu, Paperclip, Sparkles, X } from 'lucide-react'
 import type { DataSource } from '../types'
-import { useFileImport, SourceIcon } from './DataUploader'
+import { useFileImport } from './DataUploader'
+import { DataPicker, SourceBadge, sourceLabel } from './DataPicker'
 
 export function PromptInput(props: {
   value: string
@@ -11,6 +12,12 @@ export function PromptInput(props: {
   onAdd: (s: DataSource) => void
   onGenerate: () => void
   ai: boolean | null
+  allSources: DataSource[]
+  selected: string[]
+  connected: string[]
+  onToggleSource: (id: string) => void
+  onToggleTable: (id: string, table: string) => void
+  onManageData: () => void
 }) {
   const fileRef = useRef<HTMLInputElement>(null)
   const { importFiles, error } = useFileImport(props.onAdd)
@@ -54,16 +61,29 @@ export function PromptInput(props: {
               e.target.value = ''
             }}
           />
+          <DataPicker
+            sources={props.allSources}
+            selected={props.selected}
+            connected={props.connected}
+            onToggleSource={props.onToggleSource}
+            onToggleTable={props.onToggleTable}
+            onManage={props.onManageData}
+          />
           {props.attached.map((s) => (
-            <span key={s.id} className="chip fade-up !text-fg">
-              <SourceIcon s={s} size={12} />
-              <span className="max-w-[160px] truncate">{s.fileName}</span>
+            <span key={s.id} className="chip fade-up !text-fg" title={s.tables.filter((t) => !s.excludedTables?.includes(t.name)).map((t) => t.name).join(', ')}>
+              <SourceBadge s={s} size={13} />
+              <span className="max-w-[180px] truncate">{sourceLabel(s)}</span>
+              {s.tables.length > 1 && (
+                <span className="font-mono text-[10px] text-muted">
+                  {s.tables.length - (s.excludedTables?.length ?? 0)}/{s.tables.length}
+                </span>
+              )}
               <button onClick={() => props.onDetach(s.id)} className="text-muted hover:text-fg" aria-label={`Detach ${s.fileName}`}>
                 <X size={12} />
               </button>
             </span>
           ))}
-          {!props.attached.length && <span className="text-[12px] text-faint">No data attached — upload a file or pick an example below</span>}
+          {!props.attached.length && <span className="text-[12px] text-faint">No data attached — choose data, upload a file, or pick an example below</span>}
           <div className="ml-auto flex items-center gap-3">
             <span className="hidden font-mono text-[10px] text-faint sm:inline">⌘ ↵</span>
             <button className="btn btn-primary !rounded-xl !px-4" disabled={!ready} onClick={props.onGenerate}>

@@ -63,6 +63,16 @@ export function useWorkspace() {
         return { sources: s.sources.filter((x) => !gone.has(x.id)), selected: s.selected.filter((x) => !gone.has(x)) }
       }),
     removeSource: (id: string) => set((s) => ({ sources: s.sources.filter((x) => x.id !== id), selected: s.selected.filter((x) => x !== id) })),
+    toggleTable: (id: string, table: string) =>
+      set((s) => ({
+        sources: s.sources.map((x) => {
+          if (x.id !== id) return x
+          const ex = new Set(x.excludedTables ?? [])
+          if (ex.has(table)) ex.delete(table)
+          else if (ex.size < x.tables.length - 1) ex.add(table) // keep at least one dataset
+          return { ...x, excludedTables: [...ex] }
+        }),
+      })),
     toggleSelected: (id: string) => set((s) => ({ selected: s.selected.includes(id) ? s.selected.filter((x) => x !== id) : [...s.selected, id] })),
     saveApp: (app: AppSpec) => set((s) => ({ apps: [app, ...s.apps.filter((a) => a.id !== app.id)], activeApp: app.id, view: 'app' })),
     updateApp: (id: string, patch: Partial<AppSpec> | ((a: AppSpec) => Partial<AppSpec>)) =>

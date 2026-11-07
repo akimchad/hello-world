@@ -11,6 +11,7 @@ import { SAMPLES } from './lib/samples'
 import { describeTables, generateLocal, sanitizeSpec } from './lib/engine'
 import type { AppSpec, DataSource } from './types'
 import { ConnectedAccounts, type BusyState } from './components/ConnectedAccounts'
+import { usableSources } from './components/DataPicker'
 import { disconnect, fetchConnectedData, fetchIntegrations, startConnect, type IntegrationStatus, type ProviderId } from './lib/integrations'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -56,6 +57,8 @@ export default function App() {
       const res = await fetchConnectedData(p)
       const existing = sourcesRef.current.find((x) => x.connector === p)
       const src = buildSource(res.fileName, JSON.stringify(res.data), false, { connector: p, account: res.account, id: existing?.id })
+      // keep the user's dataset choices across re-syncs (only for datasets that still exist)
+      if (existing?.excludedTables?.length) src.excludedTables = existing.excludedTables.filter((n) => src.tables.some((t) => t.name === n))
       a.upsertSource(src)
       const rows = src.tables.reduce((n, t) => n + t.rows.length, 0)
       notify(`Synced ${rows} records from ${p === 'github' ? 'GitHub' : 'YouTube'} (${res.account.name})`)
@@ -113,6 +116,19 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  /** Workspace shortcut: attach only this account's data and suggest a prompt for it. */
+  const buildFromConnected = (p: ProviderId) => {
+    const src = sourcesRef.current.find((x) => x.connector === p)
+    if (!src) return
+    const PROMPTS: Record<ProviderId, string> = {
+      github: 'Create a personal developer command center from my GitHub. Show my repositories, programming languages, recent activity, and my most-starred projects.',
+      youtube: 'Build a creator studio for my YouTube channel. Show my uploads, views over time, my best performing videos, and my playlists.',
+    }
+    a.set((st) => ({ view: 'workspace', selected: [src.id], prompt: st.prompt.trim() && st.selected.includes(src.id) ? st.prompt : PROMPTS[p] }))
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    notify(`Using your ${p === 'github' ? 'GitHub' : 'YouTube'} data. Edit the prompt or datasets, then Generate.`)
+  }
+
   const connectedProviders = (integrations ?? []).filter((x) => x.connected).map((x) => x.provider)
   const accountsPanel = (
     <ConnectedAccounts
@@ -125,6 +141,7 @@ export default function App() {
       onDisconnect={disconnectProvider}
       onSync={syncProvider}
       onRetry={refreshIntegrations}
+      onBuild={buildFromConnected}
     />
   )
 
@@ -154,7 +171,9 @@ export default function App() {
     } else a.set((st) => ({ selected: [...new Set([id, ...st.selected])] }))
   }
 
-  const generate = async (prompt: string, sources: DataSource[], replaceId?: string) => {
+  const generate = async (prompt: string, chosen: DataSource[], replaceId?: string) => {
+    // Only the datasets the user kept switched on feed the generator.
+    const sources = usableSources(chosen)
     if (!sources.length) return notify('Attach at least one data source first')
     setGen({ stage: 0, prompt })
     const timer = window.setInterval(() => setGen((g) => (g && g.stage < STAGES.length - 2 ? { ...g, stage: g.stage + 1 } : g)), 750)
@@ -232,6 +251,9 @@ export default function App() {
           onOpenApp={a.openApp}
           onDeleteApp={a.deleteApp}
           onAllApps={() => nav('apps')}
+          onToggleTable={a.toggleTable}
+          onManageData={() => nav('data')}
+          onUseConnected={buildFromConnected}
           accounts={accountsPanel}
           connected={connectedProviders}
         />

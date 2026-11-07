@@ -41,6 +41,8 @@ export interface DataSource {
   /** Set when this source was synced live from a connected account (not an upload). */
   connector?: 'github' | 'youtube'
   account?: { name: string; handle?: string; avatar?: string }
+  /** Datasets (table names) the user chose NOT to use when generating apps. */
+  excludedTables?: string[]
   tables: Table[]
   profile?: Record<string, unknown>
 }

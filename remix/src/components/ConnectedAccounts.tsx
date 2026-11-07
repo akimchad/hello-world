@@ -44,6 +44,7 @@ export function ConnectedAccounts(props: {
   onDisconnect: (p: ProviderId) => void
   onSync: (p: ProviderId) => void
   onRetry: () => void
+  onBuild: (p: ProviderId) => void
 }) {
   if (props.loadError)
     return (
@@ -142,9 +143,9 @@ export function ConnectedAccounts(props: {
                     {busy === 'disconnect' ? <Loader2 size={13} className="animate-spin" /> : <LogOut size={13} />} Disconnect
                   </button>
                   {synced && !busy && (
-                    <span className="ml-auto flex items-center gap-1 text-[11px] text-emerald-400">
-                      <CheckCircle2 size={12} /> Ready for REMIX
-                    </span>
+                    <button className="btn btn-primary ml-auto !py-1.5 !text-[12px]" onClick={() => props.onBuild(it.provider)}>
+                      <CheckCircle2 size={13} /> Build an app
+                    </button>
                   )}
                 </>
               ) : (

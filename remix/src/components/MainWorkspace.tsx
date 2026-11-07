@@ -6,6 +6,7 @@ import { PromptInput } from './PromptInput'
 import { DataUploader, SourceList } from './DataUploader'
 import { DataPreview } from './DataPreview'
 import { AppCard } from './MyApps'
+import { SourceBadge } from './DataPicker'
 
 const SAMPLE_ICON = { github: Terminal, student: BookOpen, creator: Clapperboard } as const
 
@@ -81,7 +82,11 @@ export function MainWorkspace(props: {
   onAllApps: () => void
   accounts?: React.ReactNode
   connected?: string[]
+  onToggleTable: (id: string, table: string) => void
+  onManageData: () => void
+  onUseConnected: (p: 'github' | 'youtube') => void
 }) {
+  const connectedSources = props.sources.filter((s) => s.connector && props.connected?.includes(s.connector))
   const attached = props.sources.filter((s) => props.selected.includes(s.id))
   return (
     <div className="relative">
@@ -109,6 +114,12 @@ export function MainWorkspace(props: {
             onAdd={props.onAdd}
             onGenerate={props.onGenerate}
             ai={props.ai}
+            allSources={props.sources}
+            selected={props.selected}
+            connected={props.connected ?? []}
+            onToggleSource={props.onToggle}
+            onToggleTable={props.onToggleTable}
+            onManageData={props.onManageData}
           />
         </div>
         <div className="fade-up mt-5 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 font-mono text-[11px] uppercase tracking-[0.14em] text-faint" style={{ animationDelay: '240ms' }}>
@@ -120,6 +131,34 @@ export function MainWorkspace(props: {
           ))}
         </div>
       </section>
+
+      {connectedSources.length > 0 && (
+        <section className="relative mx-auto mb-12 max-w-[1240px] px-4 sm:px-6">
+          <div className="mb-4">
+            <h2 className="text-lg font-medium tracking-tight">Build from your accounts</h2>
+            <p className="text-[13px] text-muted">Uses your live, connected data. Adjust the prompt or the datasets before you generate.</p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            {connectedSources.map((s) => (
+              <button key={s.id} onClick={() => props.onUseConnected(s.connector!)} className="card fade-up group p-4 text-left transition hover:-translate-y-0.5 hover:border-line-2">
+                <div className="flex items-start justify-between">
+                  <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-full border border-line-2 bg-panel-2">
+                    <SourceBadge s={s} size={34} />
+                  </div>
+                  <span className="rounded-md border border-emerald-400/30 px-2 py-0.5 text-[10px] text-emerald-400">Live · {s.connector === 'github' ? 'GitHub' : 'YouTube'}</span>
+                </div>
+                <div className="mt-4 text-[14px] font-medium">{s.connector === 'github' ? 'My developer command center' : 'My creator studio'}</div>
+                <p className="mt-1 text-[12.5px] text-muted">
+                  {s.account?.name} · {s.tables.map((t) => `${t.rows.length} ${t.name}`).join(' · ')}
+                </p>
+                <div className="mt-3 flex items-center gap-1 text-[12px] text-muted transition group-hover:text-fg">
+                  Use this data <ArrowRight size={12} />
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="relative mx-auto max-w-[1240px] px-4 sm:px-6">
         <div className="mb-4 flex items-end justify-between">

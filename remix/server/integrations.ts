@@ -1,6 +1,7 @@
 // Real OAuth integrations for GitHub and YouTube (Google OAuth 2.0).
 // Mounted into the Vite dev/preview server as Connect middleware. All secrets and tokens stay server-side.
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { timingSafeEqual } from 'node:crypto'
 import { type Account, type Connection, type Provider, deleteConnection, getConnection, newSessionId, newState, setConnection, usingGeneratedSecret } from './tokenStore'
 
 /* ---------------- config ---------------- */
@@ -18,7 +19,8 @@ const isProvider = (p: string): p is Provider => p === 'github' || p === 'youtub
 const configured = (p: Provider) => Boolean(PROVIDERS[p].clientId() && PROVIDERS[p].clientSecret())
 
 const GITHUB_SCOPES = () => (env('GITHUB_INCLUDE_PRIVATE') === 'true' ? 'read:user repo' : 'read:user')
-const GOOGLE_SCOPES = 'openid profile https://www.googleapis.com/auth/youtube.readonly'
+// Read-only YouTube access is the only scope needed: channel, uploads, playlists and subscriptions.
+const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/youtube.readonly'
 
 /* ---------------- http helpers ---------------- */
 
@@ -52,6 +54,13 @@ function json(res: ServerResponse, status: number, body: unknown, extraHeaders: 
 function redirect(res: ServerResponse, location: string, setCookies: string[] = []) {
   res.writeHead(302, { location, 'cache-control': 'no-store', ...(setCookies.length ? { 'set-cookie': setCookies } : {}) })
   res.end()
+}
+
+function sameState(a: string | null, b: string | undefined) {
+  if (!a || !b) return false
+  const x = Buffer.from(a)
+  const y = Buffer.from(b)
+  return x.length === y.length && timingSafeEqual(x, y)
 }
 
 const backToApp = (params: Record<string, string>) => `${baseUrl()}/?${new URLSearchParams({ view: 'data', ...params })}`
@@ -146,7 +155,7 @@ async function githubData(c: Connection) {
   const h = GH_HEADERS(c.accessToken)
   const [user, repos] = await Promise.all([
     fetchJson<Record<string, any>>('https://api.github.com/user', { what: 'GitHub profile', headers: h }),
-    fetchJson<Record<string, any>[]>('https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner', { what: 'GitHub repositories', headers: h }),
+    fetchJson<Record<string, any>[]>('https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member', { what: 'GitHub repositories', headers: h }),
   ])
   const events = await fetchJson<Record<string, any>[]>(`https://api.github.com/users/${encodeURIComponent(user.login)}/events?per_page=100`, { what: 'GitHub activity', headers: h }).catch(() => [])
   // Per-repo language breakdown for the 30 most recently updated repos (keeps API usage bounded).
@@ -166,6 +175,8 @@ async function githubData(c: Connection) {
     profile: {
       name: user.name || user.login,
       login: user.login,
+      avatar: user.avatar_url,
+      bio: user.bio ?? null,
       followers: user.followers,
       public_repos: user.public_repos,
       source: 'GitHub (live, via OAuth)',
@@ -221,17 +232,21 @@ const yt = <T>(path: string, token: string, what: string) =>
 async function youtubeExchange(code: string): Promise<Connection> {
   const tok = await googleToken({ code, grant_type: 'authorization_code', redirect_uri: redirectUri('youtube') })
   if (!tok.access_token) throw new HttpError(400, `Google: ${tok.error_description || tok.error || 'no access token returned'}`)
-  if (!tok.scope?.includes('youtube.readonly')) throw new HttpError(403, 'YouTube access was not granted. Please allow “View your YouTube account” on the consent screen.')
+  if (!tok.scope?.includes('youtube.readonly')) {
+    // The user unticked YouTube access on Google's consent screen: hand the token back and fail honestly.
+    await revokeGoogleToken(tok.refresh_token || tok.access_token)
+    throw new HttpError(403, 'YouTube access was not granted. Please allow “View your YouTube account” on the consent screen.')
+  }
   const ch = await yt<{ items?: { id: string; snippet: { title: string; customUrl?: string; thumbnails?: Record<string, { url: string }> } }[] }>('channels?part=snippet&mine=true', tok.access_token, 'YouTube channel')
-  let account: Account
   const c = ch.items?.[0]
+  let account: Account
   if (c) {
     const t = c.snippet.thumbnails ?? {}
     account = { id: c.id, name: c.snippet.title, handle: c.snippet.customUrl, avatar: (t.medium ?? t.default ?? t.high)?.url, url: `https://www.youtube.com/channel/${c.id}` }
   } else {
-    // Google account without a YouTube channel: still a real connection (subscriptions/playlists may exist).
-    const u = await fetchJson<{ sub: string; name?: string; picture?: string }>('https://openidconnect.googleapis.com/v1/userinfo', { what: 'Google profile', headers: { authorization: `Bearer ${tok.access_token}` } })
-    account = { id: u.sub, name: u.name || 'Google account', handle: 'No YouTube channel', avatar: u.picture }
+    // Google account without a YouTube channel. Still a real, authorized connection (playlists/subscriptions may exist),
+    // but there is no channel name or picture to show without requesting extra profile scopes.
+    account = { id: `google-${Date.now()}`, name: 'Google account', handle: 'No YouTube channel' }
   }
   return {
     accessToken: tok.access_token,
@@ -246,7 +261,13 @@ async function youtubeExchange(code: string): Promise<Connection> {
 async function freshGoogleToken(sid: string, c: Connection): Promise<string> {
   if (c.expiresAt && c.expiresAt - Date.now() > 60_000) return c.accessToken
   if (!c.refreshToken) throw new HttpError(401, 'Your YouTube session expired. Please reconnect.')
-  const tok = await googleToken({ grant_type: 'refresh_token', refresh_token: c.refreshToken })
+  let tok: GoogleToken
+  try {
+    tok = await googleToken({ grant_type: 'refresh_token', refresh_token: c.refreshToken })
+  } catch {
+    // invalid_grant: the user revoked access or the refresh token expired.
+    throw new HttpError(401, 'YouTube access was revoked or expired. Please reconnect.')
+  }
   if (!tok.access_token) throw new HttpError(401, 'Could not refresh YouTube access. Please reconnect.')
   const next = { ...c, accessToken: tok.access_token, expiresAt: Date.now() + (tok.expires_in ?? 3600) * 1000 }
   setConnection(sid, 'youtube', next)
@@ -293,6 +314,10 @@ async function youtubeData(sid: string, c: Connection) {
     profile: {
       name: channel?.snippet?.title ?? c.account.name,
       handle: channel?.snippet?.customUrl ?? null,
+      description: String(channel?.snippet?.description ?? '').slice(0, 300),
+      country: channel?.snippet?.country ?? null,
+      created: day(channel?.snippet?.publishedAt),
+      avatar: channel?.snippet?.thumbnails?.medium?.url ?? channel?.snippet?.thumbnails?.default?.url ?? null,
       subscribers: channel?.statistics?.hiddenSubscriberCount ? null : Number(channel?.statistics?.subscriberCount ?? 0),
       total_views: Number(channel?.statistics?.viewCount ?? 0),
       video_count: Number(channel?.statistics?.videoCount ?? 0),
@@ -313,12 +338,16 @@ async function youtubeData(sid: string, c: Connection) {
   }
 }
 
-async function youtubeRevoke(c: Connection) {
-  await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(c.refreshToken || c.accessToken)}`, {
+async function revokeGoogleToken(token?: string) {
+  if (!token) return
+  await fetch('https://oauth2.googleapis.com/revoke', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ token }),
   }).catch(() => undefined)
 }
+
+const youtubeRevoke = (c: Connection) => revokeGoogleToken(c.refreshToken || c.accessToken)
 
 /* ---------------- routes ---------------- */
 
@@ -385,7 +414,7 @@ export async function integrationsMiddleware(req: IncomingMessage, res: ServerRe
       if (err) return redirect(res, backToApp({ integration_error: err === 'access_denied' ? 'You cancelled the connection' : `${PROVIDERS[p].label}: ${url.searchParams.get('error_description') || err}`, provider: p }), [clearState])
       const code = url.searchParams.get('code')
       const state = url.searchParams.get('state')
-      if (!code || !state || state !== jar[STATE(p)] || !sid)
+      if (!code || !sameState(state, jar[STATE(p)]) || !sid)
         return redirect(res, backToApp({ integration_error: 'Sign-in session expired or was tampered with. Please try again.', provider: p }), [clearState])
       try {
         const conn = p === 'github' ? await githubExchange(code) : await youtubeExchange(code)

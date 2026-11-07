@@ -20,15 +20,21 @@ On **Data Sources**, users can connect real accounts with OAuth. After a success
 
 | Provider | What REMIX reads | Scopes |
 |---|---|---|
-| GitHub | profile, repositories (name, description, primary language, top languages, stars, forks, issues, archived/fork status, visibility, topics), recent events | `read:user` (public repos). Set `GITHUB_INCLUDE_PRIVATE=true` to add `repo` |
-| YouTube | channel profile and statistics, up to 50 latest uploads with stats, playlists, subscriptions | `openid profile youtube.readonly` |
+| GitHub | username, avatar, bio; repositories you own, collaborate on or can see through your orgs (name, description, primary language, top languages, stars, forks, issues, archived/fork status, visibility, topics); recent activity | `read:user` (public repos only). Set `GITHUB_INCLUDE_PRIVATE=true` to add `repo` for private repos. GitHub has no read-only private scope. |
+| YouTube | channel name, picture, description, country, creation date and statistics; up to 50 latest uploads with stats; playlists; subscriptions | `youtube.readonly` only |
 
 Security:
 - OAuth tokens never reach the browser. The browser holds only an opaque `remix_sid` cookie (httpOnly, SameSite=Lax, and `Secure` on https).
 - Tokens are encrypted with AES-256-GCM in `remix/.data/credentials.enc` (mode 600, git-ignored).
 - The OAuth `state` parameter is checked on the callback, and cross-origin disconnects are rejected.
 - **Disconnect** revokes the grant at the provider, deletes the stored token and removes the synced data.
-- If a token is revoked on the provider's side, the next sync detects it and marks the account as disconnected.
+- If a token is revoked or a Google refresh token expires, the next sync detects it and marks the account as disconnected.
+- If the user signs in but denies the YouTube permission, the token is revoked straight away and the account is not connected.
+
+### Using connected data in the Workspace
+1. Connect GitHub or YouTube on **Data Sources**. After the data syncs, click **Build an app**, or use the **Build from your accounts** cards in the Workspace.
+2. Use **Choose data** in the prompt box to pick which sources (uploads, demo files, connected accounts) and which datasets inside them, such as repositories or activity, the app should use.
+3. Describe the app and click **Generate**. Only the datasets you left switched on reach the generator.
 
 ### Setup
 
