@@ -15,6 +15,8 @@ const TYPE_META: Record<WidgetType, { label: string; icon: typeof Gauge }> = {
   progress: { label: 'Progress', icon: Rows3 },
   checklist: { label: 'Checklist', icon: ListChecks },
   videos: { label: 'Video feed', icon: Film },
+  unified: { label: 'Unified feed', icon: Rows3 },
+  summary: { label: 'Summary', icon: Gauge },
 }
 
 const BUILDABLE: WidgetType[] = ['stat', 'bar', 'donut', 'area', 'table']
@@ -110,7 +112,7 @@ export function CustomizationPanel(props: {
               [
                 ['grid', 'Grid', LayoutGrid],
                 ['compact', 'Compact', Columns3],
-                ['focus', 'Focus', Rows3],
+                ['focus', 'Single column', Rows3],
               ] as [Layout, string, typeof LayoutGrid][]
             ).map(([k, label, Icon]) => (
               <button key={k} onClick={() => props.onUpdate({ layout: k })} className={`flex flex-col items-center gap-1.5 rounded-xl border py-3 text-[12px] transition ${app.layout === k ? 'border-accent/60 bg-accent/10 text-fg' : 'border-line-2 text-muted hover:text-fg'}`}>

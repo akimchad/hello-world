@@ -114,8 +114,14 @@ export function formatNumber(n: number, decimals = false) {
   return Math.round(n).toLocaleString()
 }
 
+/** Parse a date; plain YYYY-MM-DD is a calendar day in the viewer's timezone (not UTC midnight). */
+export function parseDate(s: string): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim())
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]).getTime() : Date.parse(s)
+}
+
 export function relativeDate(s: string) {
-  const t = Date.parse(s)
+  const t = parseDate(s)
   if (isNaN(t)) return s
   const today = new Date()
   today.setHours(0, 0, 0, 0)

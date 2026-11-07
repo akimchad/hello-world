@@ -15,7 +15,7 @@ export function youtubeId(row: IRow, w: Widget): string | null {
 
 const safeHttp = (u: string) => (/^https?:\/\//i.test(u) ? u : undefined)
 
-function Player({ id, title, link, onClose }: { id: string; title: string; link?: string; onClose: () => void }) {
+export function Player({ id, title, link, onClose }: { id: string; title: string; link?: string; onClose: () => void }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', k)

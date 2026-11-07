@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { ArrowLeft, ChevronDown, Cpu, Database, Pencil, RefreshCw, Search, SlidersHorizontal, Sparkles, X } from 'lucide-react'
+import { Crosshair, ArrowLeft, ChevronDown, Cpu, Database, Pencil, RefreshCw, Search, SlidersHorizontal, Sparkles, X } from 'lucide-react'
 import type { AppSpec, DataSource, Table } from '../types'
 import { matchesSearch, rowsWithOverrides, str, type IRow } from '../lib/data'
 import { humanize } from '../lib/parse'
 import { DashboardWidget } from './DashboardWidget'
 import { CustomizationPanel } from './CustomizationPanel'
+import { DetailsModal, Overlay } from './DetailsModal'
 
 const SPAN: Record<number, string> = { 1: 'lg:col-span-1', 2: 'sm:col-span-2 lg:col-span-2', 3: 'sm:col-span-2 lg:col-span-3', 4: 'sm:col-span-2 lg:col-span-4' }
 const STAT_COLS: Record<number, string> = { 1: 'lg:grid-cols-1', 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3', 4: 'lg:grid-cols-4' }
@@ -35,6 +36,8 @@ export function GeneratedDashboard(props: {
   const [panel, setPanel] = useState(false)
   const [editing, setEditing] = useState(false)
   const [why, setWhy] = useState(false)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [details, setDetails] = useState<{ row: IRow; table: string } | null>(null)
 
   const tables = useMemo(() => {
     const m = new Map<string, Table>()
@@ -61,8 +64,9 @@ export function GeneratedDashboard(props: {
       if (!t) return { rows: [], total: 0 }
       let rows = rowsWithOverrides(t, app.overrides)
       const total = rows.length
-      if (tableId === app.primaryTable)
-        for (const [f, v] of Object.entries(filters)) if (v) rows = rows.filter((r) => (Array.isArray(r[f]) ? (r[f] as unknown[]).map(String).includes(v) : str(r[f]) === v))
+      // A filter (from the dropdowns or from clicking a chart) applies to every table that has that field.
+      for (const [f, v] of Object.entries(filters))
+        if (v && t.fields.some((x) => x.name === f)) rows = rows.filter((r) => (Array.isArray(r[f]) ? (r[f] as unknown[]).map(String).includes(v) : str(r[f]) === v))
       if (query) rows = rows.filter((r) => matchesSearch(r, query))
       const res = { rows, total }
       cache.set(tableId, res)
@@ -70,7 +74,14 @@ export function GeneratedDashboard(props: {
     }
   }, [tables, app.overrides, app.primaryTable, filters, query])
 
-  const visible = app.widgets.filter((w) => w.visible && tables.has(w.table))
+  const focusMode = !!app.focusMode
+  // Focus Mode keeps only what you act on: open tasks, video feeds and playlists.
+  const essential = (w: (typeof app.widgets)[number]) =>
+    w.type === 'checklist' || w.type === 'videos' || w.type === 'unified' || (w.type === 'cards' && /playlist/i.test(tables.get(w.table)?.name ?? ''))
+  const visible = app.widgets.filter((w) => w.visible && tables.has(w.table) && (!focusMode || essential(w)))
+  const hiddenByFocus = focusMode ? app.widgets.filter((w) => w.visible && tables.has(w.table) && !essential(w)).length : 0
+  const rowsOf = (id: string) => rowsFor(id).rows
+  const chips = Object.entries(filters).filter(([f, v]) => v && !app.filterFields.includes(f))
   const primaryCounts = primary ? rowsFor(primary.id) : null
   const compact = app.layout === 'compact'
   const focus = app.layout === 'focus'
@@ -174,6 +185,22 @@ export function GeneratedDashboard(props: {
               ))}
             </select>
           ))}
+          {chips.map(([f, v]) => (
+            <span key={f} className="chip !text-fg">
+              {humanize(f)}: {v}
+              <button onClick={() => setFilters((s) => ({ ...s, [f]: '' }))} aria-label={`Remove filter ${f}`} className="text-muted hover:text-fg">
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+          <button
+            className={`btn !py-1.5 !text-[12.5px] ${focusMode ? '!border-accent/60 !bg-accent/15' : ''}`}
+            onClick={() => props.onUpdate({ focusMode: !focusMode })}
+            aria-pressed={focusMode}
+            title="Show only active tasks and video feeds"
+          >
+            <Crosshair size={13} /> Focus Mode{focusMode ? ' on' : ''}
+          </button>
           {activeFilters > 0 && (
             <button
               className="btn btn-ghost !text-[12px]"
@@ -191,6 +218,17 @@ export function GeneratedDashboard(props: {
             </span>
           )}
         </div>
+
+        {focusMode && (
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-accent/30 bg-accent/5 px-4 py-2.5 text-[12.5px]">
+            <span>
+              <b className="font-medium">Focus Mode</b> — showing only active tasks and video feeds. {hiddenByFocus} other widget{hiddenByFocus === 1 ? '' : 's'} hidden.
+            </span>
+            <button className="btn btn-ghost !py-1 !text-[12px]" onClick={() => props.onUpdate({ focusMode: false })}>
+              Exit
+            </button>
+          </div>
+        )}
 
         {/* widgets */}
         {visible.length ? (
@@ -212,6 +250,11 @@ export function GeneratedDashboard(props: {
                         compact={compact}
                         onHide={() => props.onUpdate((a) => ({ widgets: a.widgets.map((x) => (x.id === w.id ? { ...x, visible: false } : x)) }))}
                         onToggleDone={(row, field, value) => props.onUpdate((a) => ({ overrides: { ...a.overrides, [`${w.table}#${row.__i}#${field}`]: value } }))}
+                        rowsOf={rowsOf}
+                        onOpenRow={(row, table) => setDetails({ row, table })}
+                        onFilter={(field, value) => value && setFilters((s) => ({ ...s, [field]: s[field] === value ? '' : value }))}
+                        onExpand={() => setExpandedId(w.id)}
+                        activeOnly={focusMode}
                       />
                     </div>
                   ))}
@@ -221,14 +264,44 @@ export function GeneratedDashboard(props: {
           </div>
         ) : (
           <div className="card grid place-items-center px-6 py-16 text-center">
-            <div className="font-medium">This app has no visible widgets</div>
-            <p className="mt-1 text-[13px] text-muted">Open Customize to add widgets from the library.</p>
+            <div className="font-medium">{focusMode ? 'Nothing to focus on' : 'This app has no visible widgets'}</div>
+            <p className="mt-1 text-[13px] text-muted">
+              {focusMode ? 'Focus Mode shows active tasks and video feeds, and this app has neither. Exit Focus Mode or add one from Customize.' : 'Open Customize to add widgets from the library.'}
+            </p>
             <button className="btn btn-primary mt-4" onClick={() => setPanel(true)}>
               <SlidersHorizontal size={14} /> Customize
             </button>
           </div>
         )}
       </div>
+
+      {expandedId &&
+        (() => {
+          const w = app.widgets.find((x) => x.id === expandedId)
+          if (!w) return null
+          return (
+            <Overlay title={w.title} onClose={() => setExpandedId(null)} wide>
+              <div style={{ ['--accent' as string]: accent }}>
+                <DashboardWidget
+                  w={{ ...w, size: 4 }}
+                  rows={rowsFor(w.table).rows}
+                  accent={accent}
+                  compact={false}
+                  onHide={() => {
+                    props.onUpdate((a) => ({ widgets: a.widgets.map((x) => (x.id === w.id ? { ...x, visible: false } : x)) }))
+                    setExpandedId(null)
+                  }}
+                  onToggleDone={(row, field, value) => props.onUpdate((a) => ({ overrides: { ...a.overrides, [`${w.table}#${row.__i}#${field}`]: value } }))}
+                  rowsOf={rowsOf}
+                  onOpenRow={(row, table) => setDetails({ row, table })}
+                  onFilter={(field, value) => value && setFilters((s) => ({ ...s, [field]: s[field] === value ? '' : value }))}
+                  activeOnly={focusMode}
+                />
+              </div>
+            </Overlay>
+          )
+        })()}
+      {details && tables.get(details.table) && <DetailsModal row={details.row} table={tables.get(details.table)!} onClose={() => setDetails(null)} />}
 
       {panel && (
         <CustomizationPanel

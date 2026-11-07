@@ -205,3 +205,12 @@ body {
 .recharts-wrapper *:focus {
   outline: none;
 }
+
+/* Content must never depend on an animation finishing (e.g. throttled background tabs, reduced motion). */
+@media (prefers-reduced-motion: reduce) {
+  .fade-up,
+  .shimmer,
+  .spin-slow {
+    animation: none !important;
+  }
+}

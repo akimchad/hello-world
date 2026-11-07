@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 import { Area, AreaChart, Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { ArrowDown, ArrowUp, Check, ChevronDown, EyeOff, Inbox, Star } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, ChevronDown, EyeOff, Inbox, Maximize2, Star } from 'lucide-react'
 import type { Widget } from '../types'
 import { formatNumber, groupBy, isDone, relativeDate, statValue, str, timeSeries, type IRow } from '../lib/data'
 import { humanize } from '../lib/parse'
 import { VideoFeed } from './VideoFeed'
+import { SummaryCard, UnifiedFeed } from './UnifiedFeed'
 
 const alpha = (hex: string, a: number) => hex + Math.round(a * 255).toString(16).padStart(2, '0')
 const palette = (accent: string) => [accent, alpha(accent, 0.7), alpha(accent, 0.48), alpha(accent, 0.3), '#8b8b93', '#5a5a62', '#3a3a40']
@@ -47,12 +48,18 @@ const Badge = ({ v }: { v: unknown }) => {
   )
 }
 
-export function ProjectCard({ row, w }: { row: IRow; w: Widget }) {
+export function ProjectCard({ row, w, onOpen }: { row: IRow; w: Widget; onOpen?: () => void }) {
   const title = str(row[w.titleField!])
   const progress = w.progressField ? Number(row[w.progressField]) : NaN
   const pct = isNaN(progress) ? null : Math.max(0, Math.min(100, progress <= 1 && progress > 0 ? progress * 100 : progress))
   return (
-    <div className="group rounded-xl border border-line bg-bg-2/60 p-3.5 transition hover:border-line-2 hover:bg-panel-2">
+    <div
+      className={`group rounded-xl border border-line bg-bg-2/60 p-3.5 transition hover:border-line-2 hover:bg-panel-2 ${onOpen ? 'cursor-pointer' : ''}`}
+      onClick={onOpen}
+      role={onOpen ? 'button' : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      onKeyDown={(e) => onOpen && (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onOpen())}
+    >
       <div className="flex items-start gap-3">
         <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-line-2 bg-panel-2 font-mono text-[12px] uppercase text-accent">{title.slice(0, 1)}</div>
         <div className="min-w-0 flex-1">
@@ -86,7 +93,7 @@ export function ProjectCard({ row, w }: { row: IRow; w: Widget }) {
   )
 }
 
-function TableView({ rows, w }: { rows: IRow[]; w: Widget }) {
+function TableView({ rows, w, onOpen }: { rows: IRow[]; w: Widget; onOpen?: (r: IRow) => void }) {
   const cols = w.columns?.length ? w.columns : Object.keys(rows[0] ?? {}).filter((k) => k !== '__i').slice(0, 7)
   const [sort, setSort] = useState<{ k: string; dir: 1 | -1 } | null>(null)
   const sorted = useMemo(() => {
@@ -116,7 +123,7 @@ function TableView({ rows, w }: { rows: IRow[]; w: Widget }) {
         </thead>
         <tbody>
           {sorted.map((r) => (
-            <tr key={r.__i} className="border-b border-line/60 transition last:border-0 hover:bg-fg/[0.03]">
+            <tr key={r.__i} className={`border-b border-line/60 transition last:border-0 hover:bg-fg/[0.03] ${onOpen ? 'cursor-pointer' : ''}`} onClick={() => onOpen?.(r)}>
               {cols.map((c) => (
                 <td key={c} className="max-w-[260px] truncate whitespace-nowrap px-3 py-2">
                   {typeof r[c] === 'boolean' ? (r[c] ? <Check size={13} className="text-accent" /> : <span className="text-faint">—</span>) : /status|state|stage|priority/i.test(c) ? <Badge v={r[c]} /> : str(r[c]) || <span className="text-faint">—</span>}
@@ -137,6 +144,14 @@ export function DashboardWidget(props: {
   compact: boolean
   onToggleDone: (row: IRow, field: string, value: boolean) => void
   onHide: () => void
+  /** rows for any table (multi-table widgets: unified feed, summary) */
+  rowsOf?: (table: string) => IRow[]
+  onOpenRow?: (row: IRow, table: string) => void
+  /** click a bar / slice to filter the whole dashboard by that value */
+  onFilter?: (field: string, value: string) => void
+  onExpand?: () => void
+  /** Focus Mode: checklists show only open items */
+  activeOnly?: boolean
 }) {
   const { w, rows, accent, compact } = props
   const [expanded, setExpanded] = useState(false)
@@ -177,9 +192,25 @@ export function DashboardWidget(props: {
         <ResponsiveContainer width="100%" height={Math.max(chartH - 20, data.length * 30 + 10)}>
           <BarChart data={data} layout="vertical" margin={{ left: 0, right: 12, top: 4, bottom: 4 }}>
             <XAxis type="number" hide />
-            <YAxis type="category" dataKey="name" width={96} tickLine={false} axisLine={false} tick={{ fill: 'var(--muted)', fontSize: 11.5 }} />
+            <YAxis
+              type="category"
+              dataKey="name"
+              width={data.some((d) => d.name.length > 14) ? 150 : 96}
+              tickLine={false}
+              axisLine={false}
+              interval={0}
+              tick={{ fill: 'var(--muted)', fontSize: 11.5 }}
+              tickFormatter={(v: string) => (v.length > 22 ? v.slice(0, 21) + '…' : v)}
+            />
             <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--line)' }} />
-            <Bar dataKey="value" radius={[0, 6, 6, 0]} barSize={14} animationDuration={600}>
+            <Bar
+              dataKey="value"
+              radius={[0, 6, 6, 0]}
+              barSize={14}
+              animationDuration={600}
+              className={props.onFilter ? 'cursor-pointer' : ''}
+              onClick={(d: { name?: string; payload?: { name?: string } }) => props.onFilter?.(w.field!, String(d?.name ?? d?.payload?.name ?? ''))}
+            >
               {data.map((_, i) => (
                 <Cell key={i} fill={i === 0 ? accent : alpha(accent, Math.max(0.25, 0.75 - i * 0.08))} />
               ))}
@@ -200,7 +231,18 @@ export function DashboardWidget(props: {
           <div className="relative shrink-0" style={{ width: chartH - 40, height: chartH - 40 }}>
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={data} dataKey="value" nameKey="name" innerRadius="68%" outerRadius="100%" paddingAngle={2} stroke="none" animationDuration={600}>
+                <Pie
+                  data={data}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius="68%"
+                  outerRadius="100%"
+                  paddingAngle={2}
+                  stroke="none"
+                  animationDuration={600}
+                  className={props.onFilter ? 'cursor-pointer' : ''}
+                  onClick={(d: { name?: string; payload?: { name?: string } }) => props.onFilter?.(w.field!, String(d?.name ?? d?.payload?.name ?? ''))}
+                >
                   {data.map((_, i) => (
                     <Cell key={i} fill={colors[i % colors.length]} />
                   ))}
@@ -217,7 +259,7 @@ export function DashboardWidget(props: {
           </div>
           <ul className="min-w-0 flex-1 space-y-1.5">
             {data.map((d, i) => (
-              <li key={d.name} className="flex items-center gap-2 text-[12px]">
+              <li key={d.name} className={`flex items-center gap-2 rounded text-[12px] ${props.onFilter ? 'cursor-pointer hover:bg-fg/[0.04]' : ''}`} onClick={() => props.onFilter?.(w.field!, d.name)}>
                 <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: colors[i % colors.length] }} />
                 <span className="truncate text-fg/85">{d.name}</span>
                 <span className="ml-auto font-mono text-muted">{Math.round((d.value / total) * 100)}%</span>
@@ -264,7 +306,7 @@ export function DashboardWidget(props: {
         <>
           <div className={`grid gap-3 ${w.size >= 3 ? 'sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'}`}>
             {shown.map((r) => (
-              <ProjectCard key={r.__i} row={r} w={w} />
+              <ProjectCard key={r.__i} row={r} w={w} onOpen={props.onOpenRow && (() => props.onOpenRow!(r, w.table))} />
             ))}
           </div>
           {rows.length > limit && (
@@ -280,7 +322,7 @@ export function DashboardWidget(props: {
     }
     case 'table':
       meta = `${rows.length} rows · click a column to sort`
-      body = <TableView rows={rows} w={w} />
+      body = <TableView rows={rows} w={w} onOpen={props.onOpenRow && ((r) => props.onOpenRow!(r, w.table))} />
       break
     case 'timeline': {
       const withDate = rows.filter((r) => !isNaN(Date.parse(str(r[w.dateField!]))))
@@ -296,7 +338,11 @@ export function DashboardWidget(props: {
               const d = str(r[w.dateField!])
               const overdue = asc && Date.parse(d) < Date.now() - 864e5
               return (
-                <li key={r.__i} className="relative flex items-start gap-3 rounded-lg py-1.5 pl-0 pr-1">
+                <li
+                  key={r.__i}
+                  className={`relative flex items-start gap-3 rounded-lg py-1.5 pl-0 pr-1 ${props.onOpenRow ? 'cursor-pointer hover:bg-fg/[0.03]' : ''}`}
+                  onClick={() => props.onOpenRow?.(r, w.table)}
+                >
                   <span className={`relative z-10 mt-1.5 h-[11px] w-[11px] shrink-0 rounded-full border-2 border-panel ${overdue ? 'bg-rose-400' : 'bg-accent'}`} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
@@ -363,10 +409,23 @@ export function DashboardWidget(props: {
       meta = `${rows.length} video${rows.length === 1 ? '' : 's'}${w.subtitleField ? ` · ${new Set(rows.map((r) => str(r[w.subtitleField!]))).size} ${humanize(w.subtitleField).toLowerCase()}${new Set(rows.map((r) => str(r[w.subtitleField!]))).size === 1 ? '' : 's'}` : ''} · click to play`
       body = <VideoFeed rows={rows} w={w} compact={compact} />
       break
+    case 'unified': {
+      const feeds = w.feeds ?? []
+      const n = feeds.reduce((a, f) => a + (props.rowsOf?.(f.table).length ?? 0), 0)
+      meta = `${n} items from ${feeds.map((f) => (f.kind === 'video' ? 'YouTube' : 'GitHub')).filter((v, i, a) => a.indexOf(v) === i).join(' + ')} · click an item for details`
+      body = props.rowsOf ? <UnifiedFeed feeds={feeds} rowsOf={props.rowsOf} compact={compact} onOpenRow={props.onOpenRow ?? (() => {})} /> : null
+      break
+    }
+    case 'summary':
+      meta = 'Auto-summary of your synced data · follows your search and filters'
+      body = props.rowsOf ? <SummaryCard feeds={w.feeds ?? []} rowsOf={props.rowsOf} onOpenRow={props.onOpenRow ?? (() => {})} /> : null
+      break
     case 'checklist': {
       const doneCount = rows.filter((r) => isDone(r[w.doneField!])).length
-      const sorted = [...rows].sort((a, b) => Number(isDone(a[w.doneField!])) - Number(isDone(b[w.doneField!])))
-      meta = `${doneCount} of ${rows.length} done`
+      const sorted = [...rows]
+        .filter((r) => !props.activeOnly || !isDone(r[w.doneField!]))
+        .sort((a, b) => Number(isDone(a[w.doneField!])) - Number(isDone(b[w.doneField!])))
+      meta = props.activeOnly ? `${rows.length - doneCount} active · ${doneCount} done (hidden in Focus Mode)` : `${doneCount} of ${rows.length} done`
       body = rows.length ? (
         <ul className="scroll-thin max-h-[340px] space-y-1 overflow-auto pr-1">
           {sorted.map((r) => {
@@ -404,9 +463,16 @@ export function DashboardWidget(props: {
           <h3 className="truncate text-[14px] font-medium">{w.title}</h3>
           {meta && <p className="mt-0.5 text-[11.5px] text-muted">{meta}</p>}
         </div>
-        <button onClick={props.onHide} className="btn btn-ghost !p-1 opacity-0 transition group-hover:opacity-100" aria-label={`Hide ${w.title}`} title="Remove widget">
-          <EyeOff size={13} />
-        </button>
+        <div className="flex shrink-0 items-center gap-0.5 opacity-60 transition group-hover:opacity-100">
+          {props.onExpand && (
+            <button onClick={props.onExpand} className="btn btn-ghost !p-1" aria-label={`Expand ${w.title}`} title="Expand">
+              <Maximize2 size={13} />
+            </button>
+          )}
+          <button onClick={props.onHide} className="btn btn-ghost !p-1" aria-label={`Hide ${w.title}`} title="Remove widget">
+            <EyeOff size={13} />
+          </button>
+        </div>
       </div>
       <div className="min-h-0 flex-1">{body}</div>
     </div>

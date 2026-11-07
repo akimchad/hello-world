@@ -198,7 +198,8 @@ async function githubData(c: Connection) {
     })),
     activity: events.map((e) => {
       const d = describeEvent(e as { type: string; payload: Record<string, any> })
-      return { date: day(e.created_at), type: d.type, repo: String(e.repo?.name ?? '').split('/').pop(), message: d.message }
+      const full = String(e.repo?.name ?? '')
+      return { date: day(e.created_at), type: d.type, repo: full.split('/').pop(), message: d.message, url: full ? `https://github.com/${full}` : null }
     }),
   }
 }

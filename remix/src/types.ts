@@ -59,8 +59,23 @@ export type WidgetType =
   | 'progress'
   | 'checklist'
   | 'videos'
+  | 'unified'
+  | 'summary'
 
-export const WIDGET_TYPES: WidgetType[] = ['stat', 'bar', 'donut', 'area', 'cards', 'table', 'timeline', 'progress', 'checklist', 'videos']
+export const WIDGET_TYPES: WidgetType[] = ['stat', 'bar', 'donut', 'area', 'cards', 'table', 'timeline', 'progress', 'checklist', 'videos', 'unified', 'summary']
+
+/** One table mapped into a cross-platform feed (used by the unified feed and the summary widget). */
+export interface FeedSource {
+  table: string
+  kind: 'video' | 'code'
+  titleField: string
+  dateField: string
+  subtitleField?: string
+  imageField?: string
+  linkField?: string
+  metricField?: string
+  badgeField?: string
+}
 
 export interface Widget {
   id: string
@@ -88,6 +103,8 @@ export interface Widget {
   imageField?: string
   linkField?: string
   variant?: 'grid' | 'list'
+  /** unified feed / summary: the tables they combine */
+  feeds?: FeedSource[]
 }
 
 export type Archetype = 'developer' | 'student' | 'creator' | 'generic'
@@ -107,6 +124,8 @@ export interface AppSpec {
   reasoning: string[]
   primaryTable?: string
   filterFields: string[]
+  /** Focus Mode: only active tasks and video feeds/playlists are shown */
+  focusMode?: boolean
   overrides: Record<string, boolean> // checklist toggles: `${tableId}#${rowIndex}#${field}`
   createdAt: number
 }

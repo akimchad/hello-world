@@ -4,7 +4,7 @@
 //   actual fields in the user's data. Nothing returned by the model is ever executed — only rendered
 //   through known React components.
 
-import type { AppSpec, Archetype, DataSource, Field, Role, Table, Widget, WidgetType } from '../types'
+import type { AppSpec, Archetype, DataSource, FeedSource, Field, Role, Table, Widget, WidgetType } from '../types'
 import { WIDGET_TYPES } from '../types'
 import { humanize, uid } from './parse'
 import { isPositive } from './data'
@@ -206,7 +206,7 @@ export function generateLocal(prompt: string, sources: DataSource[]): AppSpec {
       if (pr.cat && m && pr.cat.distinct > 2)
         charts.push(W({ type: 'bar', title: `${humanize(m.name)} by ${humanize(pr.cat.name).toLowerCase()}`, table: t.id, size: 2, field: pr.cat.name, valueField: m.name, agg: 'sum', visible: vis(true) }))
       else if (pr.cat && !isMedia(pr)) charts.push(W({ type: 'bar', title: `By ${humanize(pr.cat.name).toLowerCase()}`, table: t.id, size: 2, field: pr.cat.name, visible: vis(!pr.lang && pr.cat.distinct > 1) }))
-      if (pr.status) charts.push(W({ type: 'donut', title: `${label} status`, table: t.id, size: 2, field: pr.status.name, visible: vis(true) }))
+      if (pr.status) charts.push(W({ type: 'donut', title: `${label} status`, table: t.id, size: 2, field: pr.status.name, visible: vis(pr.status.distinct > 1) }))
       const media = /publish|post|content|video|upload|episode/.test(t.name)
       if (pr.date && m && (media || /publish|post|content|video/.test(p)))
         charts.push(W({ type: 'area', title: `${humanize(m.name)} over time`, table: t.id, size: 2, dateField: pr.date.name, valueField: m.name, visible: vis(want.perf || media) }))
@@ -316,6 +316,39 @@ export function generateLocal(prompt: string, sources: DataSource[]): AppSpec {
       add(charts, W({ type: 'area', title: `${label} over time`, table: t.id, size: 2, dateField: pr.date.name, visible: true }))
   }
 
+  // Cross-platform feed + summary: videos (thumbnails) and code activity merged into one timeline.
+  const sourceOf = (tid: string) => sources.find((s) => s.tables.some((t) => t.id === tid))
+  const videoFeeds: FeedSource[] = profiles
+    .filter((x) => isMedia(x) && x.date && x.t.rows.length)
+    .map((x) => ({ table: x.t.id, kind: 'video', titleField: x.name!.name, dateField: x.date!.name, subtitleField: x.cat?.name, imageField: x.image?.name, linkField: x.link?.name, metricField: bestMetric(x)?.name }))
+  const codeish = (x: Profile) => sourceOf(x.t.id)?.connector === 'github' || x.t.fields.some((f) => /^(repo|repository|commit|sha|branch)$/i.test(f.name))
+  let codeFeeds: FeedSource[] = profiles
+    .filter((x) => !isMedia(x) && x.kind === 'events' && x.date && codeish(x))
+    .map((x) => {
+      const msg = x.t.fields.find((f) => /^(message|title|summary|description)$/i.test(f.name)) ?? x.name ?? x.desc
+      const repo = x.t.fields.find((f) => /^(repo|repository|project)$/i.test(f.name))
+      const type = x.t.fields.find((f) => /^(type|kind|action)$/i.test(f.name))
+      return { table: x.t.id, kind: 'code' as const, titleField: msg?.name ?? x.date!.name, dateField: x.date!.name, subtitleField: repo?.name, badgeField: type?.name, linkField: x.link?.name }
+    })
+  if (!codeFeeds.length)
+    codeFeeds = profiles
+      .filter((x) => !isMedia(x) && x.kind === 'entities' && x.date && x.name && codeish(x))
+      .slice(0, 1)
+      .map((x) => ({ table: x.t.id, kind: 'code' as const, titleField: x.name!.name, dateField: x.date!.name, subtitleField: x.lang?.name, badgeField: x.status?.name, linkField: x.link?.name }))
+  const unified = videoFeeds.length > 0 && codeFeeds.length > 0
+  if (videoFeeds.length) {
+    const feeds = [...videoFeeds, ...codeFeeds]
+    hero.unshift(
+      W({ type: 'summary', title: unified ? "What's new" : 'Latest releases', table: feeds[0].table, size: 4, feeds, visible: true }),
+      ...(unified ? [W({ type: 'unified', title: 'Unified feed', table: feeds[0].table, size: 4, feeds, visible: true })] : []),
+    )
+    if (unified) {
+      // The unified feed already covers these; keep them in the library instead of repeating them.
+      for (const w of [...extras, ...lists]) if ((w.type === 'videos' && w.variant === 'list') || (w.type === 'timeline' && codeFeeds.some((f) => f.table === w.table))) w.visible = false
+    }
+    reasoning.push(unified ? 'Merged your videos and code activity into one unified feed with an auto-summary on top.' : 'Added an auto-summary of the latest releases above the video feed.')
+  }
+
   // Rank KPIs (completion and counts first), keep at most 4 visible; the rest stay in the widget library.
   const prio = (w: Widget) =>
     (w.table === primary?.t.id && w.agg === 'count' ? 0 : w.agg === 'countWhere' && !w.equals ? 1 : w.agg === 'distinct' ? 2 : w.agg === 'avg' ? 3 : w.agg === 'sum' ? 4 : 5) + (w.visible ? 0 : 10)
@@ -412,6 +445,8 @@ const REQUIRED: Record<WidgetType, (keyof Widget)[]> = {
   progress: ['progressField', 'titleField'],
   checklist: ['doneField', 'titleField'],
   videos: ['titleField'],
+  unified: [],
+  summary: [],
 }
 const FIELD_KEYS: (keyof Widget)[] = ['field', 'valueField', 'dateField', 'titleField', 'subtitleField', 'badgeField', 'tagField', 'metricField', 'progressField', 'doneField', 'imageField', 'linkField']
 
@@ -425,7 +460,8 @@ export function sanitizeSpec(raw: unknown, sources: DataSource[], prompt: string
     if (!w || typeof w !== 'object') continue
     const x = w as Record<string, unknown>
     const type = x.type as WidgetType
-    if (!WIDGET_TYPES.includes(type)) continue
+    // Feed and summary widgets combine several tables; they come from the local engine, not the model.
+    if (!WIDGET_TYPES.includes(type) || type === 'unified' || type === 'summary') continue
     const t = findTable(x.table)
     if (!t) continue
     const names = new Set(t.fields.map((f) => f.name))
@@ -449,6 +485,9 @@ export function sanitizeSpec(raw: unknown, sources: DataSource[], prompt: string
   }
   if (!widgets.length) throw new Error('Model returned no usable widgets')
   // Everything the local engine found but the model didn't use stays available in the widget library.
+  // Keep the cross-platform feed and summary on top of a Claude-designed app too.
+  const crossPlatform = local.widgets.filter((w) => (w.type === 'unified' || w.type === 'summary') && w.visible)
+  widgets.unshift(...crossPlatform)
   const used = new Set(widgets.map((w) => `${w.type}:${w.table}:${w.field ?? w.titleField ?? w.dateField ?? ''}`))
   const library = local.widgets
     .filter((w) => !used.has(`${w.type}:${w.table}:${w.field ?? w.titleField ?? w.dateField ?? ''}`))
