@@ -121,7 +121,7 @@ func setup(hid: String, path: String, h: float, clips: Dictionary, grip := "", a
 		mi.extra_cull_margin = 2.0
 	_make_overlay_material(alt)
 	if skel == null:
-		push_warning(hid + ": model has no skeleton (static mesh)")
+		print_verbose(hid + ": model has no skeleton (static mesh)")
 		_fit_static()
 		return false
 	skel.reset_bone_poses()
@@ -269,6 +269,8 @@ func _grip_weapon(grip_name: String):
 	att.bone_idx = B.rHand
 	skel.add_child(att)
 	var att_root: Transform3D = _skel_to_root() * skel.get_bone_global_pose(B.rHand)
+	# the prop leaves the imported scene's ownership before it moves onto the hand
+	for n in [ws] + ws.find_children("*", "", true, false): n.owner = null
 	ws.get_parent().remove_child(ws)
 	att.add_child(ws)
 	ws.transform = att_root.affine_inverse() * new_wt
