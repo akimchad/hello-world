@@ -1,0 +1,461 @@
+{
+  "context": {
+    "projectPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Packages",
+    "unityVersion": "6000.3.27f1"
+  },
+  "inputs": [
+    "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Packages/manifest.json",
+    "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Packages/packages-lock.json",
+    "/Applications/Unity/Hub/Editor/6000.3.27f1/Unity.app/Contents/Resources/PackageManager/BuiltInPackages/BuiltInPackagesCombined.sha1"
+  ],
+  "outputs": {
+    "com.unity.2d.sprite@1.0.0": {
+      "name": "com.unity.2d.sprite",
+      "displayName": "2D Sprite",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.2d.sprite@5b922524bd83",
+      "fingerprint": "5b922524bd83a860cb253077a959065a136c5931",
+      "editorCompatibility": "2019.2.0a1",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.2d.tilemap@1.0.0": {
+      "name": "com.unity.2d.tilemap",
+      "displayName": "2D Tilemap Editor",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.2d.tilemap@4d671073d7ba",
+      "fingerprint": "4d671073d7ba1ed8d65133ba1a86b74afa0d5193",
+      "editorCompatibility": "2019.2.0a1",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.ai.navigation@2.0.16": {
+      "name": "com.unity.ai.navigation",
+      "displayName": "AI Navigation",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.ai.navigation@d0cf77b009bb",
+      "fingerprint": "d0cf77b009bbdba7a0bf95e0de8b25be0659b9a4",
+      "editorCompatibility": "6000.0.0a1",
+      "version": "2.0.16",
+      "source": "registry",
+      "testable": false
+    },
+    "com.unity.analytics@3.8.2": {
+      "name": "com.unity.analytics",
+      "displayName": "Analytics Library",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.analytics@c9d14a6bdec6",
+      "fingerprint": "c9d14a6bdec6bc414ff1cab77dd82647a9fa1334",
+      "editorCompatibility": "2019.3.0a1",
+      "version": "3.8.2",
+      "source": "registry",
+      "testable": false
+    },
+    "com.unity.collab-proxy@2.13.6": {
+      "name": "com.unity.collab-proxy",
+      "displayName": "Unity Version Control",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.collab-proxy@4628d2ba6ea4",
+      "fingerprint": "4628d2ba6ea45aaa16a8b78239d0f6f9c2176982",
+      "editorCompatibility": "6000.0.0a1",
+      "version": "2.13.6",
+      "source": "registry",
+      "testable": false
+    },
+    "com.unity.ide.rider@3.1.0": {
+      "name": "com.unity.ide.rider",
+      "displayName": "JetBrains Rider Editor",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.ide.rider@570989d4a882",
+      "fingerprint": "570989d4a88246414b032dbbd9c0395f928933f2",
+      "editorCompatibility": "6000.0.0a1",
+      "version": "3.1.0",
+      "source": "registry",
+      "testable": false
+    },
+    "com.unity.ide.visualstudio@2.0.26": {
+      "name": "com.unity.ide.visualstudio",
+      "displayName": "Visual Studio Editor",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.ide.visualstudio@a99d56dec63f",
+      "fingerprint": "a99d56dec63ffb3a911a5a9bce9b77ba862a601c",
+      "editorCompatibility": "2021.3.0a1",
+      "version": "2.0.26",
+      "source": "registry",
+      "testable": false
+    },
+    "com.unity.multiplayer.center@1.0.1": {
+      "name": "com.unity.multiplayer.center",
+      "displayName": "Multiplayer Center",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.multiplayer.center@f01f4ba8d00a",
+      "fingerprint": "f01f4ba8d00afa4e957bddf0fcd1612a564401ff",
+      "editorCompatibility": "6000.0.0a1",
+      "version": "1.0.1",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.test-framework@1.6.0": {
+      "name": "com.unity.test-framework",
+      "displayName": "Test Framework",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.test-framework@bd7f943e9647",
+      "fingerprint": "bd7f943e964734fe159ef03827ee64a0ab725741",
+      "editorCompatibility": "6000.0.44f1",
+      "version": "1.6.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.timeline@1.8.13": {
+      "name": "com.unity.timeline",
+      "displayName": "Timeline",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.timeline@3a22918286f5",
+      "fingerprint": "3a22918286f51d73dd374b3f8051050ab2ab08ac",
+      "editorCompatibility": "6000.0.0a1",
+      "version": "1.8.13",
+      "source": "registry",
+      "testable": false
+    },
+    "com.unity.ugui@2.0.0": {
+      "name": "com.unity.ugui",
+      "displayName": "uGUI",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.ugui@c0ef89c047f6",
+      "fingerprint": "c0ef89c047f65e553b3df5413cb945480f368138",
+      "editorCompatibility": "2019.2.0a1",
+      "version": "2.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.xr.legacyinputhelpers@2.1.13": {
+      "name": "com.unity.xr.legacyinputhelpers",
+      "displayName": "XR Legacy Input Helpers",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.xr.legacyinputhelpers@9535ff2c27ac",
+      "fingerprint": "9535ff2c27ac3e8dfb63877c36641a1cc1a48c14",
+      "editorCompatibility": "2019.4.0a1",
+      "version": "2.1.13",
+      "source": "registry",
+      "testable": false
+    },
+    "com.unity.modules.accessibility@1.0.0": {
+      "name": "com.unity.modules.accessibility",
+      "displayName": "Accessibility",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.accessibility",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.adaptiveperformance@1.0.0": {
+      "name": "com.unity.modules.adaptiveperformance",
+      "displayName": "Adaptive Performance",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.adaptiveperformance",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.ai@1.0.0": {
+      "name": "com.unity.modules.ai",
+      "displayName": "AI",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.ai",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.androidjni@1.0.0": {
+      "name": "com.unity.modules.androidjni",
+      "displayName": "Android JNI",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.androidjni",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.animation@1.0.0": {
+      "name": "com.unity.modules.animation",
+      "displayName": "Animation",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.animation",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.assetbundle@1.0.0": {
+      "name": "com.unity.modules.assetbundle",
+      "displayName": "Asset Bundle",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.assetbundle",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.audio@1.0.0": {
+      "name": "com.unity.modules.audio",
+      "displayName": "Audio",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.audio",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.cloth@1.0.0": {
+      "name": "com.unity.modules.cloth",
+      "displayName": "Cloth",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.cloth",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.director@1.0.0": {
+      "name": "com.unity.modules.director",
+      "displayName": "Director",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.director",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.imageconversion@1.0.0": {
+      "name": "com.unity.modules.imageconversion",
+      "displayName": "Image Conversion",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.imageconversion",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.imgui@1.0.0": {
+      "name": "com.unity.modules.imgui",
+      "displayName": "IMGUI",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.imgui",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.jsonserialize@1.0.0": {
+      "name": "com.unity.modules.jsonserialize",
+      "displayName": "JSONSerialize",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.jsonserialize",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.particlesystem@1.0.0": {
+      "name": "com.unity.modules.particlesystem",
+      "displayName": "Particle System",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.particlesystem",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.physics@1.0.0": {
+      "name": "com.unity.modules.physics",
+      "displayName": "Physics",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.physics",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.physics2d@1.0.0": {
+      "name": "com.unity.modules.physics2d",
+      "displayName": "Physics 2D",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.physics2d",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.screencapture@1.0.0": {
+      "name": "com.unity.modules.screencapture",
+      "displayName": "Screen Capture",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.screencapture",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.terrain@1.0.0": {
+      "name": "com.unity.modules.terrain",
+      "displayName": "Terrain",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.terrain",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.terrainphysics@1.0.0": {
+      "name": "com.unity.modules.terrainphysics",
+      "displayName": "Terrain Physics",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.terrainphysics",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.tilemap@1.0.0": {
+      "name": "com.unity.modules.tilemap",
+      "displayName": "Tilemap",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.tilemap",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.ui@1.0.0": {
+      "name": "com.unity.modules.ui",
+      "displayName": "UI",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.ui",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.uielements@1.0.0": {
+      "name": "com.unity.modules.uielements",
+      "displayName": "UIElements",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.uielements",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.umbra@1.0.0": {
+      "name": "com.unity.modules.umbra",
+      "displayName": "Umbra",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.umbra",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.unityanalytics@1.0.0": {
+      "name": "com.unity.modules.unityanalytics",
+      "displayName": "Unity Analytics",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.unityanalytics",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.unitywebrequest@1.0.0": {
+      "name": "com.unity.modules.unitywebrequest",
+      "displayName": "Unity Web Request",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.unitywebrequest",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.unitywebrequestassetbundle@1.0.0": {
+      "name": "com.unity.modules.unitywebrequestassetbundle",
+      "displayName": "Unity Web Request Asset Bundle",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.unitywebrequestassetbundle",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.unitywebrequestaudio@1.0.0": {
+      "name": "com.unity.modules.unitywebrequestaudio",
+      "displayName": "Unity Web Request Audio",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.unitywebrequestaudio",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.unitywebrequesttexture@1.0.0": {
+      "name": "com.unity.modules.unitywebrequesttexture",
+      "displayName": "Unity Web Request Texture",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.unitywebrequesttexture",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.unitywebrequestwww@1.0.0": {
+      "name": "com.unity.modules.unitywebrequestwww",
+      "displayName": "Unity Web Request WWW",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.unitywebrequestwww",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.vectorgraphics@1.0.0": {
+      "name": "com.unity.modules.vectorgraphics",
+      "displayName": "Vector Graphics",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.vectorgraphics",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.vehicles@1.0.0": {
+      "name": "com.unity.modules.vehicles",
+      "displayName": "Vehicles",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.vehicles",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.video@1.0.0": {
+      "name": "com.unity.modules.video",
+      "displayName": "Video",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.video",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.vr@1.0.0": {
+      "name": "com.unity.modules.vr",
+      "displayName": "VR",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.vr",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.wind@1.0.0": {
+      "name": "com.unity.modules.wind",
+      "displayName": "Wind",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.wind",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.xr@1.0.0": {
+      "name": "com.unity.modules.xr",
+      "displayName": "XR",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.xr",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.subsystems@1.0.0": {
+      "name": "com.unity.modules.subsystems",
+      "displayName": "Subsystems",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.subsystems",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.modules.hierarchycore@1.0.0": {
+      "name": "com.unity.modules.hierarchycore",
+      "displayName": "Hierarchy Core",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.modules.hierarchycore",
+      "version": "1.0.0",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.ext.nunit@2.0.5": {
+      "name": "com.unity.ext.nunit",
+      "displayName": "Custom NUnit",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.ext.nunit@d8c07649098d",
+      "fingerprint": "d8c07649098d3936da4c8ab500960c1776b44592",
+      "editorCompatibility": "2019.4.0a1",
+      "version": "2.0.5",
+      "source": "builtin",
+      "testable": false
+    },
+    "com.unity.services.analytics@6.3.0": {
+      "name": "com.unity.services.analytics",
+      "displayName": "Analytics",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.services.analytics@cde4e6cf92f9",
+      "fingerprint": "cde4e6cf92f9fcb43ce29d380df0e9c0b9428e6c",
+      "editorCompatibility": "2022.3.0a1",
+      "version": "6.3.0",
+      "source": "registry",
+      "testable": false
+    },
+    "com.unity.services.core@1.18.0": {
+      "name": "com.unity.services.core",
+      "displayName": "Services Core",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.services.core@3464cb68d709",
+      "fingerprint": "3464cb68d7096e9749b8bf60588cfe0568b643fc",
+      "editorCompatibility": "2022.3.0a1",
+      "version": "1.18.0",
+      "source": "registry",
+      "testable": false
+    },
+    "com.unity.nuget.newtonsoft-json@3.2.2": {
+      "name": "com.unity.nuget.newtonsoft-json",
+      "displayName": "Newtonsoft Json",
+      "resolvedPath": "/Users/akimbekkhamitov/code/hello-world/MARVEL KOMBAT OG/Library/PackageCache/com.unity.nuget.newtonsoft-json@4dfd81071c64",
+      "fingerprint": "4dfd81071c6475bb9c114f920bfb4e3fc5e28c6a",
+      "editorCompatibility": "2018.4.0a1",
+      "version": "3.2.2",
+      "source": "registry",
+      "testable": false
+    }
+  }
+}
