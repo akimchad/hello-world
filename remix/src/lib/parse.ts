@@ -126,7 +126,9 @@ function inferRoles(name: string, type: FieldType, values: unknown[], distinct: 
     if (has(n, /(category|type|platform|course|subject|channel|genre|kind|project|repo|format|source)/) && distinct < rowCount) r.push('category')
     if (has(n, /(name|title|task|assignment|repo$|topic|item|label|headline|message)/)) r.push('name')
     if (has(n, /(desc|summary|notes|about|details|message)/)) r.push('description')
-    if (has(n, /(url|link|href|website)/) || values.some((x) => typeof x === 'string' && /^https?:\/\//.test(x))) r.push('url')
+    const looksImage = (x: unknown) => typeof x === 'string' && /^https?:\/\/\S+(\.(jpe?g|png|webp|gif)(\?|$)|ytimg\.com|ggpht\.com|googleusercontent\.com|avatars\.githubusercontent)/i.test(x)
+    if (has(n, /(thumb|image|img|avatar|picture|photo|cover|poster)/) || (values.length && values.every(looksImage))) r.push('image')
+    else if (has(n, /(url|link|href|website)/) || values.some((x) => typeof x === 'string' && /^https?:\/\//.test(x))) r.push('url')
   }
   if (type === 'list') r.push('tags')
   if (type === 'category' && !r.length && distinct <= 10) r.push('category')
@@ -151,7 +153,7 @@ export function profileRows(rows: Row[]): Field[] {
   })
   // Ensure some field carries the "name" role: first unique-ish text/category field
   if (!fields.some((f) => f.roles.includes('name'))) {
-    const cand = fields.find((f) => (f.type === 'text' || f.type === 'category') && f.distinct >= rows.length * 0.8 && !f.roles.includes('url'))
+    const cand = fields.find((f) => (f.type === 'text' || f.type === 'category') && f.distinct >= rows.length * 0.8 && !f.roles.includes('url') && !f.roles.includes('image'))
     if (cand) cand.roles.unshift('name')
   }
   // Long text fields without a role become descriptions

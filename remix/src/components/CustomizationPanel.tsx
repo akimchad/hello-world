@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowDown, ArrowUp, BarChart3, CalendarClock, CheckSquare, Columns3, Eye, EyeOff, Gauge, LayoutGrid, ListChecks, Moon, PieChart, Plus, RefreshCw, Rows3, Square, Sun, Table2, Trash2, TrendingUp, X } from 'lucide-react'
+import { Film, ArrowDown, ArrowUp, BarChart3, CalendarClock, CheckSquare, Columns3, Eye, EyeOff, Gauge, LayoutGrid, ListChecks, Moon, PieChart, Plus, RefreshCw, Rows3, Square, Sun, Table2, Trash2, TrendingUp, X } from 'lucide-react'
 import type { AppSpec, Layout, Table, Widget, WidgetType } from '../types'
 import { ACCENT_OPTIONS } from '../lib/engine'
 import { humanize, uid } from '../lib/parse'
@@ -14,6 +14,7 @@ const TYPE_META: Record<WidgetType, { label: string; icon: typeof Gauge }> = {
   timeline: { label: 'Timeline', icon: CalendarClock },
   progress: { label: 'Progress', icon: Rows3 },
   checklist: { label: 'Checklist', icon: ListChecks },
+  videos: { label: 'Video feed', icon: Film },
 }
 
 const BUILDABLE: WidgetType[] = ['stat', 'bar', 'donut', 'area', 'table']

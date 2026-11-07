@@ -107,6 +107,7 @@ export function statValue(rows: Row[], w: Widget): { value: number; of?: number;
 }
 
 export function formatNumber(n: number, decimals = false) {
+  if (Math.abs(n) >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, '') + 'B'
   if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M'
   if (Math.abs(n) >= 1e4) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'k'
   if (decimals) return n.toFixed(1).replace(/\.0$/, '')

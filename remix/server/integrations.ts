@@ -307,8 +307,115 @@ async function youtubeData(sid: string, c: Connection) {
       }))
     }
   }
-  const pl = await yt<{ items?: Record<string, any>[] }>('playlists?part=snippet,contentDetails,status&mine=true&maxResults=50', token, 'YouTube playlists').catch(() => ({ items: [] }))
-  const subs = await yt<{ items?: Record<string, any>[] }>('subscriptions?part=snippet&mine=true&maxResults=50&order=relevance', token, 'YouTube subscriptions').catch(() => ({ items: [] }))
+  // Optional parts never fail the whole sync, but problems are reported back instead of silently returning nothing.
+  const warnings: string[] = []
+  const soft = async <T,>(what: string, fn: () => Promise<T>, fallback: T): Promise<T> => {
+    try {
+      return await fn()
+    } catch (e) {
+      if (e instanceof HttpError && e.status === 401) throw e // token is dead: let the caller disconnect
+      warnings.push(e instanceof Error ? e.message : `${what} failed`)
+      return fallback
+    }
+  }
+
+  // Playlists belong to a channel; accounts without one have none to list.
+  const pl = channel
+    ? await soft('YouTube playlists', () => yt<{ items?: Record<string, any>[] }>('playlists?part=snippet,contentDetails,status&mine=true&maxResults=50', token, 'YouTube playlists'), { items: [] })
+    : { items: [] as Record<string, any>[] }
+
+  // Subscriptions: the channels you follow (up to 100, two pages).
+  const subItems: Record<string, any>[] = []
+  await soft('YouTube subscriptions', async () => {
+    let pageToken = ''
+    for (let page = 0; page < 2; page++) {
+      const r = await yt<{ items?: Record<string, any>[]; nextPageToken?: string }>(
+        `subscriptions?part=snippet&mine=true&maxResults=50&order=relevance${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`,
+        token,
+        'YouTube subscriptions',
+      )
+      subItems.push(...(r.items ?? []))
+      if (!r.nextPageToken) break
+      pageToken = r.nextPageToken
+    }
+  }, undefined)
+
+  // Latest uploads from subscribed channels. Uses channels.list + playlistItems.list (1 quota unit each)
+  // instead of search.list (100 units each), so a full sync stays well inside the daily quota.
+  const subscriptionVideos: Record<string, unknown>[] = []
+  const subChannels = subItems
+    .map((x) => ({ id: String(x.snippet?.resourceId?.channelId ?? ''), title: String(x.snippet?.title ?? '') }))
+    .filter((x) => /^UC[\w-]{22}$/.test(x.id))
+    .slice(0, 50)
+  if (subChannels.length) {
+    await soft('Subscribed channels', async () => {
+      const uploadsByChannel = new Map<string, string>()
+      for (let i = 0; i < subChannels.length; i += 50) {
+        const ids = subChannels.slice(i, i + 50).map((x) => x.id).join(',')
+        const r = await yt<{ items?: Record<string, any>[] }>(`channels?part=contentDetails&id=${ids}&maxResults=50`, token, 'Subscribed channels')
+        for (const ch of r.items ?? []) if (ch.contentDetails?.relatedPlaylists?.uploads) uploadsByChannel.set(ch.id, ch.contentDetails.relatedPlaylists.uploads)
+      }
+      // Aim for a full feed (~60 videos) whether you follow 2 channels or 50.
+      const PER_CHANNEL = Math.max(5, Math.min(25, Math.ceil(60 / Math.max(1, uploadsByChannel.size))))
+      const latest: { id: string; title: string; channel: string; channelId: string; published: string; thumb?: string }[] = []
+      const queue = subChannels.filter((x) => uploadsByChannel.has(x.id))
+      let failed = 0
+      // small worker pool so ~50 channels sync in a couple of seconds without hammering the API
+      await Promise.all(
+        Array.from({ length: 8 }, async () => {
+          for (let ch = queue.shift(); ch; ch = queue.shift()) {
+            try {
+              const r = await yt<{ items?: Record<string, any>[] }>(
+                `playlistItems?part=snippet,contentDetails&maxResults=${PER_CHANNEL}&playlistId=${encodeURIComponent(uploadsByChannel.get(ch.id)!)}`,
+                token,
+                'Channel uploads',
+              )
+              for (const it of r.items ?? []) {
+                const vid = it.contentDetails?.videoId
+                if (!vid || it.snippet?.title === 'Private video' || it.snippet?.title === 'Deleted video') continue
+                const th = it.snippet?.thumbnails ?? {}
+                latest.push({
+                  id: vid,
+                  title: it.snippet.title,
+                  channel: it.snippet.videoOwnerChannelTitle || ch.title,
+                  channelId: ch.id,
+                  published: it.contentDetails?.videoPublishedAt || it.snippet.publishedAt,
+                  thumb: (th.medium ?? th.high ?? th.default)?.url,
+                })
+              }
+            } catch (e) {
+              if (e instanceof HttpError && e.status === 401) throw e
+              failed++ // e.g. a channel with uploads hidden; skip it
+            }
+          }
+        }),
+      )
+      if (failed) warnings.push(`Skipped ${failed} subscribed channel${failed > 1 ? 's' : ''} whose uploads could not be read`)
+      latest.sort((a, b) => b.published.localeCompare(a.published))
+      const top = latest.slice(0, 150)
+      // Views, likes and duration for the feed (videos.list: 1 unit per 50 videos)
+      const stats = new Map<string, Record<string, any>>()
+      for (let i = 0; i < top.length; i += 50) {
+        const r = await soft('Video statistics', () => yt<{ items?: Record<string, any>[] }>(`videos?part=statistics,contentDetails&id=${top.slice(i, i + 50).map((v) => v.id).join(',')}`, token, 'Video statistics'), { items: [] })
+        for (const v of r.items ?? []) stats.set(v.id, v)
+      }
+      for (const v of top) {
+        const st = stats.get(v.id)
+        subscriptionVideos.push({
+          title: v.title,
+          channel: v.channel,
+          published: day(v.published),
+          views: st ? Number(st.statistics?.viewCount ?? 0) : null,
+          likes: st ? Number(st.statistics?.likeCount ?? 0) : null,
+          duration_min: st ? isoMinutes(st.contentDetails?.duration) : null,
+          thumbnail: v.thumb ?? `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg`,
+          url: `https://www.youtube.com/watch?v=${v.id}`,
+          video_id: v.id,
+          channel_url: `https://www.youtube.com/channel/${v.channelId}`,
+        })
+      }
+    }, undefined)
+  }
 
   return {
     profile: {
@@ -318,23 +425,29 @@ async function youtubeData(sid: string, c: Connection) {
       country: channel?.snippet?.country ?? null,
       created: day(channel?.snippet?.publishedAt),
       avatar: channel?.snippet?.thumbnails?.medium?.url ?? channel?.snippet?.thumbnails?.default?.url ?? null,
-      subscribers: channel?.statistics?.hiddenSubscriberCount ? null : Number(channel?.statistics?.subscriberCount ?? 0),
-      total_views: Number(channel?.statistics?.viewCount ?? 0),
-      video_count: Number(channel?.statistics?.videoCount ?? 0),
+      has_channel: Boolean(channel),
+      subscribers: channel ? (channel.statistics?.hiddenSubscriberCount ? null : Number(channel.statistics?.subscriberCount ?? 0)) : null,
+      total_views: channel ? Number(channel.statistics?.viewCount ?? 0) : null,
+      video_count: channel ? Number(channel.statistics?.videoCount ?? 0) : null,
+      subscriptions_synced: subItems.length,
       source: 'YouTube (live, via Google OAuth)',
     },
+    subscription_videos: subscriptionVideos,
     videos,
     playlists: (pl.items ?? []).map((p) => ({
       title: p.snippet.title,
-      videos: Number(p.contentDetails?.itemCount ?? 0),
+      item_count: Number(p.contentDetails?.itemCount ?? 0),
       status: p.status?.privacyStatus ? String(p.status.privacyStatus).replace(/^\w/, (s: string) => s.toUpperCase()) : 'Unknown',
       created: day(p.snippet.publishedAt),
     })),
-    subscriptions: (subs.items ?? []).map((s) => ({
-      channel: s.snippet.title,
-      subscribed: day(s.snippet.publishedAt),
-      description: String(s.snippet.description ?? '').split('\n')[0].slice(0, 160),
+    subscriptions: subItems.map((x) => ({
+      channel: x.snippet.title,
+      subscribed: day(x.snippet.publishedAt),
+      description: String(x.snippet.description ?? '').split('\n')[0].slice(0, 160),
+      thumbnail: x.snippet.thumbnails?.medium?.url ?? x.snippet.thumbnails?.default?.url ?? null,
+      channel_url: x.snippet.resourceId?.channelId ? `https://www.youtube.com/channel/${x.snippet.resourceId.channelId}` : null,
     })),
+    _warnings: warnings,
   }
 }
 
@@ -433,8 +546,10 @@ export async function integrationsMiddleware(req: IncomingMessage, res: ServerRe
       if (!c) return json(res, 401, { error: `${PROVIDERS[p].label} is not connected` })
       try {
         const data = p === 'github' ? await githubData(c) : await youtubeData(sid!, c)
-        const handle = (c.account.handle || c.account.name).replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || p
-        return json(res, 200, { provider: p, account: c.account, fileName: `${p}-${handle}.json`, data, fetchedAt: Date.now() })
+        const label = p === 'youtube' && !c.account.url ? 'account' : c.account.handle || c.account.name
+        const handle = label.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || p
+        const { _warnings, ...clean } = data as typeof data & { _warnings?: string[] }
+        return json(res, 200, { provider: p, account: c.account, fileName: `${p}-${handle}.json`, data: clean, warnings: _warnings ?? [], fetchedAt: Date.now() })
       } catch (e) {
         if (e instanceof HttpError && e.status === 401) {
           // Token revoked or expired on the provider side: don't keep pretending it's connected.

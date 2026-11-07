@@ -15,6 +15,7 @@ You never write code. You return ONE JSON object (no prose, no markdown fences) 
 - "table": rows as a table. columns: array of field names.
 - "timeline": dated feed. dateField + titleField required; optional subtitleField, badgeField.
 - "progress": progress bars (0-100). progressField + titleField required; optional subtitleField.
+- "videos": media feed with thumbnails. titleField required; optional imageField (thumbnail URL), linkField (video URL), subtitleField (e.g. channel), dateField, metricField (e.g. views), variant ("grid" for a thumbnail feed, "list" for a compact latest-first list). Use it whenever rows have thumbnails.
 - "checklist": interactive to-do list. doneField (boolean or status) + titleField required; optional subtitleField, badgeField, dateField.
 
 Every widget needs: type, title (short, human), table (the table id exactly as given), size (1-4 columns of a 4-column grid; stats are 1, cards/table are 4).

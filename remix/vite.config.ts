@@ -20,6 +20,20 @@ function readBody(req: IncomingMessage): Promise<string> {
 // Server-side API. The Anthropic key only ever lives in this Node process.
 function remixApi(): Plugin {
   const mount: Plugin['configureServer'] = (server) => {
+    // Defense in depth: refuse any request that names server-only paths, however it is encoded.
+    server.middlewares.use((req, res, next) => {
+      let path = req.url ?? ''
+      try {
+        path = decodeURIComponent(path)
+      } catch {
+        /* keep raw */
+      }
+      if (/(^|\/)(\.data|\.env[^/]*)(\/|\?|$)|\/server\//.test(path.split('?')[0] + '/')) {
+        res.statusCode = 404
+        return res.end('Not found')
+      }
+      next()
+    })
     // OAuth (GitHub, YouTube) + connected-account data. Tokens never leave this process.
     server.middlewares.use((req, res, next) => {
       integrationsMiddleware(req, res, next).catch(next)
@@ -51,23 +65,37 @@ function remixApi(): Plugin {
   return { name: 'remix-api', configureServer: mount, configurePreviewServer: mount as never }
 }
 
+// Server-only variables: loaded into process.env, never exposed to client code (no VITE_ prefix).
+const SERVER_VARS = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'GITHUB_CLIENT_ID',
+  'GITHUB_CLIENT_SECRET',
+  'GITHUB_INCLUDE_PRIVATE',
+  'GOOGLE_CLIENT_ID',
+  'GOOGLE_CLIENT_SECRET',
+  'REMIX_SESSION_SECRET',
+  'REMIX_BASE_URL',
+]
+
 export default defineConfig(({ mode }) => {
+  // Vite restarts the server and re-runs this config whenever .env.local changes, so file values are
+  // re-applied each time and edits take effect without restarting `npm run dev`. Variables exported in
+  // the shell before the server first started always win.
+  const g = globalThis as { __remixShellEnv?: Set<string> }
+  g.__remixShellEnv ??= new Set(SERVER_VARS.filter((k) => process.env[k]))
+  // loadEnv() merges process.env into its result, so drop values we set from the file last time first;
+  // otherwise a value removed from .env.local would linger.
+  for (const k of SERVER_VARS) if (!g.__remixShellEnv.has(k)) delete process.env[k]
   const env = loadEnv(mode, process.cwd(), '')
-  const SERVER_VARS = [
-    'ANTHROPIC_API_KEY',
-    'ANTHROPIC_AUTH_TOKEN',
-    'GITHUB_CLIENT_ID',
-    'GITHUB_CLIENT_SECRET',
-    'GITHUB_INCLUDE_PRIVATE',
-    'GOOGLE_CLIENT_ID',
-    'GOOGLE_CLIENT_SECRET',
-    'REMIX_SESSION_SECRET',
-    'REMIX_BASE_URL',
-  ]
-  // Server-only: loaded into process.env, never exposed to client code (no VITE_ prefix).
-  for (const k of SERVER_VARS) if (env[k] && !process.env[k]) process.env[k] = env[k]
+  for (const k of SERVER_VARS) if (!g.__remixShellEnv.has(k) && env[k]) process.env[k] = env[k]
   return {
     plugins: [react(), tailwindcss(), remixApi()],
-    server: { port: 5180 },
+    server: {
+      port: 5180,
+      // Never serve server-side secrets: encrypted credentials + session secret live in .data/,
+      // OAuth/API keys in .env*. (Vite's default deny list covers .env but not .data.)
+      fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '.data', '.data/**', '**/.data/**', 'server/**'] },
+    },
   }
 })

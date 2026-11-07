@@ -45,6 +45,7 @@ export function ConnectedAccounts(props: {
   onSync: (p: ProviderId) => void
   onRetry: () => void
   onBuild: (p: ProviderId) => void
+  warnings?: Partial<Record<ProviderId, string>>
 }) {
   if (props.loadError)
     return (
@@ -126,6 +127,11 @@ export function ConnectedAccounts(props: {
               <div className="mt-3 text-[11.5px] text-muted">Reads: {META[it.provider].gets}</div>
             )}
 
+            {!err && props.warnings?.[it.provider] && it.connected && (
+              <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-[11.5px] text-amber-300 light:text-amber-800">
+                <AlertTriangle size={12} className="mt-0.5 shrink-0" /> Partly synced: {props.warnings[it.provider]}
+              </div>
+            )}
             {err && (
               <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-[12px] text-red-400" role="alert">
                 <AlertTriangle size={13} className="mt-0.5 shrink-0" /> {err}

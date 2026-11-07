@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, Check, ChevronDown, EyeOff, Inbox, Star } from 'luc
 import type { Widget } from '../types'
 import { formatNumber, groupBy, isDone, relativeDate, statValue, str, timeSeries, type IRow } from '../lib/data'
 import { humanize } from '../lib/parse'
+import { VideoFeed } from './VideoFeed'
 
 const alpha = (hex: string, a: number) => hex + Math.round(a * 255).toString(16).padStart(2, '0')
 const palette = (accent: string) => [accent, alpha(accent, 0.7), alpha(accent, 0.48), alpha(accent, 0.3), '#8b8b93', '#5a5a62', '#3a3a40']
@@ -358,6 +359,10 @@ export function DashboardWidget(props: {
       )
       break
     }
+    case 'videos':
+      meta = `${rows.length} video${rows.length === 1 ? '' : 's'}${w.subtitleField ? ` · ${new Set(rows.map((r) => str(r[w.subtitleField!]))).size} ${humanize(w.subtitleField).toLowerCase()}${new Set(rows.map((r) => str(r[w.subtitleField!]))).size === 1 ? '' : 's'}` : ''} · click to play`
+      body = <VideoFeed rows={rows} w={w} compact={compact} />
+      break
     case 'checklist': {
       const doneCount = rows.filter((r) => isDone(r[w.doneField!])).length
       const sorted = [...rows].sort((a, b) => Number(isDone(a[w.doneField!])) - Number(isDone(b[w.doneField!])))

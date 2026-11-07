@@ -15,6 +15,7 @@ export type Role =
   | 'tags'
   | 'url'
   | 'priority'
+  | 'image'
 
 export interface Field {
   name: string
@@ -57,8 +58,9 @@ export type WidgetType =
   | 'timeline'
   | 'progress'
   | 'checklist'
+  | 'videos'
 
-export const WIDGET_TYPES: WidgetType[] = ['stat', 'bar', 'donut', 'area', 'cards', 'table', 'timeline', 'progress', 'checklist']
+export const WIDGET_TYPES: WidgetType[] = ['stat', 'bar', 'donut', 'area', 'cards', 'table', 'timeline', 'progress', 'checklist', 'videos']
 
 export interface Widget {
   id: string
@@ -82,6 +84,10 @@ export interface Widget {
   doneField?: string
   columns?: string[]
   hint?: string
+  /** media widgets: thumbnail + link fields, and grid (feed) or list layout */
+  imageField?: string
+  linkField?: string
+  variant?: 'grid' | 'list'
 }
 
 export type Archetype = 'developer' | 'student' | 'creator' | 'generic'

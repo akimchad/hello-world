@@ -35,6 +35,7 @@ export default function App() {
   const [intLoadError, setIntLoadError] = useState<string | null>(null)
   const [busy, setBusy] = useState<BusyState>({})
   const [intErrors, setIntErrors] = useState<Partial<Record<ProviderId, string>>>({})
+  const [intWarnings, setIntWarnings] = useState<Partial<Record<ProviderId, string>>>({})
   const sourcesRef = useRef(s.sources)
   sourcesRef.current = s.sources
 
@@ -62,6 +63,8 @@ export default function App() {
       a.upsertSource(src)
       const rows = src.tables.reduce((n, t) => n + t.rows.length, 0)
       notify(`Synced ${rows} records from ${p === 'github' ? 'GitHub' : 'YouTube'} (${res.account.name})`)
+      // Partial problems (e.g. one channel unreadable) are shown on the card, never hidden.
+      setIntWarnings((x) => ({ ...x, [p]: res.warnings?.length ? res.warnings.join(' · ') : undefined }))
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Sync failed'
       setIntErrors((x) => ({ ...x, [p]: msg }))
@@ -122,9 +125,10 @@ export default function App() {
     if (!src) return
     const PROMPTS: Record<ProviderId, string> = {
       github: 'Create a personal developer command center from my GitHub. Show my repositories, programming languages, recent activity, and my most-starred projects.',
-      youtube: 'Build a creator studio for my YouTube channel. Show my uploads, views over time, my best performing videos, and my playlists.',
+      youtube:
+        'Build a video dashboard from my YouTube subscriptions: a feed of the latest videos from the channels I follow with thumbnails, a latest videos list, views over time, and filters by channel. Include my own uploads if I have any.',
     }
-    a.set((st) => ({ view: 'workspace', selected: [src.id], prompt: st.prompt.trim() && st.selected.includes(src.id) ? st.prompt : PROMPTS[p] }))
+    a.set({ view: 'workspace', selected: [src.id], prompt: PROMPTS[p] })
     window.scrollTo({ top: 0, behavior: 'smooth' })
     notify(`Using your ${p === 'github' ? 'GitHub' : 'YouTube'} data. Edit the prompt or datasets, then Generate.`)
   }
@@ -142,6 +146,7 @@ export default function App() {
       onSync={syncProvider}
       onRetry={refreshIntegrations}
       onBuild={buildFromConnected}
+      warnings={intWarnings}
     />
   )
 
@@ -202,6 +207,11 @@ export default function App() {
     if (replaceId) {
       const prev = s.apps.find((x) => x.id === replaceId)
       if (prev) spec = { ...spec, id: prev.id, layout: prev.layout, accent: prev.accent, createdAt: prev.createdAt, title: prompt === prev.prompt ? prev.title : spec.title }
+    }
+    if (!spec.widgets.some((w) => w.visible)) {
+      // Never save a blank app; say why instead.
+      setGen(null)
+      return notify('The selected data has no records REMIX can build widgets from. Choose other data or re-sync the account.')
     }
     a.saveApp(spec)
     setGen(null)

@@ -41,5 +41,5 @@ export async function fetchConnectedData(p: ProviderId) {
   const r = await fetch(`/api/integrations/${p}/data`, { credentials: 'same-origin' })
   const j = await r.json().catch(() => ({}))
   if (!r.ok) throw new SyncError(j.error ?? `HTTP ${r.status}`, Boolean(j.disconnected) || r.status === 401)
-  return j as { provider: ProviderId; account: { name: string; handle?: string; avatar?: string }; fileName: string; data: unknown; fetchedAt: number }
+  return j as { provider: ProviderId; account: { name: string; handle?: string; avatar?: string }; fileName: string; data: unknown; warnings?: string[]; fetchedAt: number }
 }

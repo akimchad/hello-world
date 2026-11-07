@@ -66,10 +66,14 @@ interface Profile {
   done?: Field
   desc?: Field
   tags?: Field
+  image?: Field
+  link?: Field
   priority?: Field
   metrics: Field[]
   kind: 'entities' | 'events' | 'tasks' | 'goals'
   relevance: number
+  /** prompt explicitly names this table (no aliases or field-name matches) */
+  named: boolean
 }
 
 function profileTable(t: Table, promptTokens: string[]): Profile {
@@ -83,6 +87,8 @@ function profileTable(t: Table, promptTokens: string[]): Profile {
   const done = pick(f, 'done')
   const desc = pick(f, 'description', [name?.name])
   const tags = pick(f, 'tags')
+  const image = pick(f, 'image')
+  const link = f.find((x) => x.roles.includes('url') && /^(url|link|watch_url|video_url|href)$/i.test(x.name)) ?? pick(f, 'url')
   const priority = pick(f, 'priority')
   const metrics = f.filter((x) => x.roles.includes('metric'))
   const n = t.rows.length
@@ -95,7 +101,8 @@ function profileTable(t: Table, promptTokens: string[]): Profile {
   // Everyday words people use for connected-account tables.
   for (const [k, al] of Object.entries(ALIASES)) if (words.has(k)) al.forEach((a) => words.add(a))
   const relevance = promptTokens.filter((w) => words.has(w)).length
-  return { t, name, status, lang, cat, date, progress, done, desc, tags, priority, metrics, kind, relevance }
+  const named = tokens(t.name).some((w) => promptTokens.includes(w))
+  return { t, name, status, lang, cat, date, progress, done, desc, tags, image, link, priority, metrics, kind, relevance, named }
 }
 
 function bestMetric(p: Profile) {
@@ -112,10 +119,15 @@ function positiveValue(t: Table, field: string) {
   return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
 }
 
+/** Display name for a table ("subscription_videos" reads as "Videos"). */
+const tableLabel = (name: string) => (/^subscription_videos$/i.test(name) ? 'Videos' : humanize(name))
+
 const W = (w: Omit<Widget, 'id' | 'visible'> & { visible?: boolean }): Widget => ({ id: uid(), visible: true, ...w })
 
 export function generateLocal(prompt: string, sources: DataSource[]): AppSpec {
-  const tables = sources.flatMap((s) => s.tables).filter((t) => t.rows.length > 1)
+  const all = sources.flatMap((s) => s.tables)
+  // Single-row tables are usually profile info; use them only when there is nothing else.
+  const tables = all.some((t) => t.rows.length > 1) ? all.filter((t) => t.rows.length > 1) : all.filter((t) => t.rows.length > 0)
   const pt = tokens(prompt)
   const p = prompt.toLowerCase()
   const archetype = detectArchetype(prompt, tables)
@@ -135,23 +147,43 @@ export function generateLocal(prompt: string, sources: DataSource[]): AppSpec {
   reasoning.push(`Read ${tables.length} table${tables.length === 1 ? '' : 's'} with ${totalRows} records from ${sources.map((s) => s.fileName).join(', ')}.`)
 
   const profiles = tables.map((t) => profileTable(t, pt)).sort((a, b) => b.relevance - a.relevance || b.t.rows.length - a.t.rows.length)
+  // Media feeds (rows with a thumbnail + title, e.g. YouTube videos) get a visual feed instead of plain cards.
+  const isMedia = (x: Profile) => Boolean(x.image && x.name && x.t.rows.length > 0)
+  const mediaWanted = /video|feed|subscri|influencer|youtube|watch|channel|creator/.test(p)
   // Primary table: the most relevant "entities" table, else most relevant overall.
   const primary =
+    (mediaWanted ? profiles.filter(isMedia).sort((a, b) => Number(/subscri/.test(b.t.name) && /subscri|influencer|follow|feed/.test(p)) - Number(/subscri/.test(a.t.name) && /subscri|influencer|follow|feed/.test(p)) || b.t.rows.length - a.t.rows.length)[0] : undefined) ??
     profiles.find((x) => x.kind === 'entities' && x.name && x.relevance > 0) ??
     profiles.find((x) => x.kind === 'entities' && x.name) ??
     profiles.find((x) => x.name) ??
     profiles[0]
 
+  // Combined apps: when the chosen sources are about different things (e.g. GitHub + YouTube), every source
+  // contributes its core tables, regardless of which words the prompt happened to use.
+  const kindOf = (s: DataSource) => detectArchetype('', s.tables)
+  const sourceKinds = [...new Set(sources.map(kindOf))]
+  const multi = sources.length > 1 && sourceKinds.filter((k) => k !== 'generic').length > 1
+  const anchors = new Map<string, number>() // table id -> source order
+  if (multi)
+    sources.forEach((s, i) => {
+      const own = profiles.filter((x) => s.tables.some((t) => t.id === x.t.id))
+      const main = own.filter((x) => x.kind === 'entities' && x.name).sort((a, b) => b.t.rows.length - a.t.rows.length)[0]
+      const events = own.find((x) => x.kind === 'events')
+      for (const x of [main, events]) if (x) anchors.set(x.t.id, i)
+    })
+  if (multi) reasoning.push(`Combined ${sources.length} sources (${sourceKinds.join(' + ')}): kept each one's core data — ${[...anchors.keys()].map((id) => id.split(':')[1]).join(', ')}.`)
+
   const stats: Widget[] = []
   const charts: Widget[] = []
   const lists: Widget[] = []
   const extras: Widget[] = []
+  const hero: Widget[] = [] // shown right under the KPIs (e.g. a video feed)
 
   for (const pr of profiles) {
     const { t } = pr
-    const label = humanize(t.name)
+    const label = tableLabel(t.name)
     const isPrimary = pr === primary
-    const relevant = isPrimary || pr.relevance > 0
+    const relevant = multi ? anchors.has(t.id) || pr.named : isPrimary || pr.relevance > 0 || (mediaWanted && isMedia(pr) && /subscri/.test(t.name))
     const vis = (b: boolean) => relevant && b
     reasoning.push(
       `\`${t.name}\` → ${pr.kind} (${t.rows.length} rows)` +
@@ -171,15 +203,30 @@ export function generateLocal(prompt: string, sources: DataSource[]): AppSpec {
       }
       if (pr.lang)
         charts.push(W({ type: 'bar', title: `${humanize(pr.lang.name)}s`, table: t.id, size: 2, field: pr.lang.name, visible: vis(true), hint: `${label} per ${humanize(pr.lang.name).toLowerCase()}` }))
-      if (pr.cat && m)
+      if (pr.cat && m && pr.cat.distinct > 2)
         charts.push(W({ type: 'bar', title: `${humanize(m.name)} by ${humanize(pr.cat.name).toLowerCase()}`, table: t.id, size: 2, field: pr.cat.name, valueField: m.name, agg: 'sum', visible: vis(true) }))
-      else if (pr.cat) charts.push(W({ type: 'bar', title: `By ${humanize(pr.cat.name).toLowerCase()}`, table: t.id, size: 2, field: pr.cat.name, visible: vis(!pr.lang) }))
+      else if (pr.cat && !isMedia(pr)) charts.push(W({ type: 'bar', title: `By ${humanize(pr.cat.name).toLowerCase()}`, table: t.id, size: 2, field: pr.cat.name, visible: vis(!pr.lang && pr.cat.distinct > 1) }))
       if (pr.status) charts.push(W({ type: 'donut', title: `${label} status`, table: t.id, size: 2, field: pr.status.name, visible: vis(true) }))
-      if (pr.date && m && /publish|post|content|video/.test(t.name + p))
-        charts.push(W({ type: 'area', title: `${humanize(m.name)} over time`, table: t.id, size: 2, dateField: pr.date.name, valueField: m.name, visible: vis(want.perf) }))
+      const media = /publish|post|content|video|upload|episode/.test(t.name)
+      if (pr.date && m && (media || /publish|post|content|video/.test(p)))
+        charts.push(W({ type: 'area', title: `${humanize(m.name)} over time`, table: t.id, size: 2, dateField: pr.date.name, valueField: m.name, visible: vis(want.perf || media) }))
+      if (pr.name && m && t.rows.length > 2)
+        charts.push(W({ type: 'bar', title: `Top ${label.toLowerCase()} by ${humanize(m.name).toLowerCase()}`, table: t.id, size: 2, field: pr.name.name, valueField: m.name, agg: 'sum', visible: vis(want.perf || media) }))
       if (pr.date && pr.name)
         extras.push(W({ type: 'timeline', title: want.schedule ? 'Schedule' : `Recently updated`, table: t.id, size: 2, dateField: pr.date.name, titleField: pr.name.name, subtitleField: pr.cat?.name ?? pr.lang?.name, badgeField: pr.status?.name, visible: vis(want.schedule) }))
-      if (pr.name)
+      if (isMedia(pr)) {
+        const feedTitle = /subscri/.test(t.name) ? 'Subscribed Influencers Feed' : label
+        hero.push(
+          W({ type: 'videos', variant: 'grid', title: feedTitle, table: t.id, size: 4, titleField: pr.name!.name, subtitleField: pr.cat?.name, dateField: pr.date?.name, imageField: pr.image!.name, linkField: pr.link?.name, metricField: m?.name, visible: relevant || mediaWanted }),
+        )
+        extras.unshift(
+          W({ type: 'videos', variant: 'list', title: /subscri/.test(t.name) ? 'Latest videos' : `Latest ${label.toLowerCase()}`, table: t.id, size: 2, titleField: pr.name!.name, subtitleField: pr.cat?.name, dateField: pr.date?.name, imageField: pr.image!.name, linkField: pr.link?.name, metricField: m?.name, visible: relevant || mediaWanted }),
+        )
+        if (pr.cat) {
+          stats.push(W({ type: 'stat', title: `${humanize(pr.cat.name)}s`, table: t.id, size: 1, agg: 'distinct', field: pr.cat.name, visible: relevant || mediaWanted }))
+          charts.push(W({ type: 'bar', title: `${label} per ${humanize(pr.cat.name).toLowerCase()}`, table: t.id, size: 2, field: pr.cat.name, visible: (relevant || mediaWanted) && pr.cat.distinct > 1 }))
+        }
+      } else if (pr.name)
         lists.push(
           W({
             type: 'cards',
@@ -248,7 +295,7 @@ export function generateLocal(prompt: string, sources: DataSource[]): AppSpec {
 
   // Prompt-driven pass: honour metrics and trends the user explicitly named, for any table.
   const exists = (w: Partial<Widget>) =>
-    [...stats, ...charts, ...extras, ...lists].find((x) => x.type === w.type && x.table === w.table && (x.field ?? '') === (w.field ?? '') && (x.valueField ?? '') === (w.valueField ?? '') && (x.dateField ?? '') === (w.dateField ?? ''))
+    [...stats, ...hero, ...charts, ...extras, ...lists].find((x) => x.type === w.type && x.table === w.table && (x.field ?? '') === (w.field ?? '') && (x.valueField ?? '') === (w.valueField ?? '') && (x.dateField ?? '') === (w.dateField ?? ''))
   const add = (bucket: Widget[], w: Widget) => {
     const dup = exists(w)
     if (dup) dup.visible = dup.visible || w.visible
@@ -256,16 +303,16 @@ export function generateLocal(prompt: string, sources: DataSource[]): AppSpec {
   }
   for (const pr of profiles) {
     const { t } = pr
-    const label = humanize(t.name)
+    const label = tableLabel(t.name)
     const named = pr.metrics.filter((m) => tokens(m.name).some((tk) => pt.includes(tk)))
     for (const m of named) {
       const mLabel = humanize(m.name)
       add(stats, W({ type: 'stat', title: `Total ${mLabel.toLowerCase()}`, table: t.id, size: 1, agg: 'sum', field: m.name, visible: true }))
-      const by = pr.cat ?? pr.lang ?? pr.status
+      const by = [pr.cat, pr.lang, pr.status].find((f) => f && f.distinct > 2)
       if (by) add(charts, W({ type: 'bar', title: `${mLabel} by ${humanize(by.name).toLowerCase()}`, table: t.id, size: 2, field: by.name, valueField: m.name, agg: 'sum', visible: true }))
       if (pr.date) add(charts, W({ type: 'area', title: `${mLabel} over time`, table: t.id, size: 2, dateField: pr.date.name, valueField: m.name, visible: want.trend }))
     }
-    if (pr.date && t.rows.length >= 6 && want.trend && (pr === primary || pr.relevance > 0))
+    if (pr.date && t.rows.length >= 6 && want.trend && !isMedia(pr) && (pr === primary || pr.relevance > 0))
       add(charts, W({ type: 'area', title: `${label} over time`, table: t.id, size: 2, dateField: pr.date.name, visible: true }))
   }
 
@@ -273,18 +320,40 @@ export function generateLocal(prompt: string, sources: DataSource[]): AppSpec {
   const prio = (w: Widget) =>
     (w.table === primary?.t.id && w.agg === 'count' ? 0 : w.agg === 'countWhere' && !w.equals ? 1 : w.agg === 'distinct' ? 2 : w.agg === 'avg' ? 3 : w.agg === 'sum' ? 4 : 5) + (w.visible ? 0 : 10)
   stats.sort((x, y) => prio(x) - prio(y))
-  let shown = 0
-  for (const s of stats) if (s.visible && ++shown > 4) s.visible = false
-  // Guarantee something useful is visible.
-  if (![...charts, ...lists].some((w) => w.visible)) [...charts, ...lists].slice(0, 3).forEach((w) => (w.visible = true))
+  if (multi) {
+    const perSource = new Map<number, number>()
+    for (const s of stats) {
+      const src = anchors.get(s.table)
+      if (!s.visible || src === undefined) {
+        s.visible = false
+        continue
+      }
+      const n = (perSource.get(src) ?? 0) + 1
+      perSource.set(src, n)
+      s.visible = n <= 2
+    }
+  } else {
+    let shown = 0
+    for (const s of stats) if (s.visible && ++shown > 4) s.visible = false
+  }
+  // Never generate a blank app: if nothing ended up visible, show the most useful widgets we have.
+  const everything = () => [...stats, ...hero, ...charts, ...extras, ...lists]
+  if (![...hero, ...charts, ...extras, ...lists].some((w) => w.visible)) [...hero, ...lists, ...charts, ...extras].slice(0, 3).forEach((w) => (w.visible = true))
+  if (!everything().some((w) => w.visible)) stats.slice(0, 4).forEach((w) => (w.visible = true))
+  for (const pr of profiles)
+    if (!everything().some((w) => w.table === pr.t.id))
+      lists.push(W({ type: 'table', title: tableLabel(pr.t.name), table: pr.t.id, size: 4, columns: pr.t.fields.slice(0, 7).map((f) => f.name), visible: !everything().some((w) => w.visible) }))
 
-  const widgets = balanceLayout([...stats, ...charts, ...extras, ...lists])
+  const widgets = balanceLayout([...stats, ...hero, ...charts, ...extras, ...lists])
   const filterFields = primary ? [primary.status?.name, primary.lang?.name ?? primary.cat?.name].filter((x): x is string => !!x) : []
 
   const named = prompt.match(/(?:called|named|titled)\s+["“']?([^"”'.,\n]{3,40})/i)?.[1]
-  const title = named ?? (DEFAULT_TITLES[archetype] || `${humanize(primary?.t.name ?? 'My')} Explorer`)
-  const profile = sources.find((s) => s.profile)?.profile
-  const who = (profile?.['name'] as string) || (profile?.['profile.name'] as string)
+  const combinedTitle =
+    multi && sourceKinds.includes('creator') && sourceKinds.includes('developer') ? 'Creator & Developer Hub' : multi ? 'My Combined Workspace' : ''
+  const feedTitle = primary && isMedia(primary) && /subscri/.test(primary.t.name) && !multi ? 'My Video Dashboard' : ''
+  const title = named ?? (combinedTitle || feedTitle || DEFAULT_TITLES[archetype] || `${humanize(primary?.t.name ?? 'My')} Explorer`)
+  const names = [...new Set(sources.map((s) => (s.profile?.['name'] as string) || (s.profile?.['profile.name'] as string) || s.account?.name).filter(Boolean))]
+  const who = names.join(' & ')
   const visibleCount = widgets.filter((w) => w.visible).length
   reasoning.push(`Matched your request (${Object.entries(want).filter(([, v]) => v).map(([k]) => k).join(', ') || 'general overview'}) → composed ${visibleCount} widgets, ${widgets.length - visibleCount} more available.`)
 
@@ -292,12 +361,12 @@ export function generateLocal(prompt: string, sources: DataSource[]): AppSpec {
     id: uid(),
     title: title.trim(),
     subtitle: who ? `Built for ${who} from ${sources.map((s) => s.fileName).join(', ')}` : `Generated from ${sources.map((s) => s.fileName).join(', ')}`,
-    archetype,
+    archetype: multi ? 'generic' : archetype,
     prompt,
     sourceIds: sources.map((s) => s.id),
     widgets,
     layout: 'grid',
-    accent: ACCENTS[archetype],
+    accent: ACCENTS[multi ? 'generic' : archetype],
     engine: 'local',
     reasoning,
     primaryTable: primary?.t.id,
@@ -342,8 +411,9 @@ const REQUIRED: Record<WidgetType, (keyof Widget)[]> = {
   timeline: ['dateField', 'titleField'],
   progress: ['progressField', 'titleField'],
   checklist: ['doneField', 'titleField'],
+  videos: ['titleField'],
 }
-const FIELD_KEYS: (keyof Widget)[] = ['field', 'valueField', 'dateField', 'titleField', 'subtitleField', 'badgeField', 'tagField', 'metricField', 'progressField', 'doneField']
+const FIELD_KEYS: (keyof Widget)[] = ['field', 'valueField', 'dateField', 'titleField', 'subtitleField', 'badgeField', 'tagField', 'metricField', 'progressField', 'doneField', 'imageField', 'linkField']
 
 /** Validate an untrusted spec (e.g. from the model) against the catalog and the user's real fields. */
 export function sanitizeSpec(raw: unknown, sources: DataSource[], prompt: string, local: AppSpec): AppSpec {
@@ -371,6 +441,7 @@ export function sanitizeSpec(raw: unknown, sources: DataSource[], prompt: string
     if (['count', 'sum', 'avg', 'distinct', 'countWhere'].includes(String(x.agg))) out.agg = x.agg as Widget['agg']
     if (typeof x.equals === 'string') out.equals = x.equals.slice(0, 60)
     if (typeof x.hint === 'string') out.hint = x.hint.slice(0, 80)
+    if (x.variant === 'grid' || x.variant === 'list') out.variant = x.variant
     if (Array.isArray(x.columns)) out.columns = x.columns.filter((c): c is string => typeof c === 'string' && names.has(c)).slice(0, 8)
     if (type === 'stat' && out.agg && out.agg !== 'count' && !out.field) continue
     if (REQUIRED[type].some((k) => !out[k])) continue
