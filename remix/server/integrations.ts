@@ -2,7 +2,7 @@
 // Mounted into the Vite dev/preview server as Connect middleware. All secrets and tokens stay server-side.
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { timingSafeEqual } from 'node:crypto'
-import { type Account, type Connection, type Provider, deleteConnection, getConnection, newSessionId, newState, setConnection, usingGeneratedSecret } from './tokenStore'
+import { type Account, type Connection, type Provider, deleteConnection, getConnection, newSessionId, newState, setConnection, usingGeneratedSecret } from './tokenStore.ts'
 
 /* ---------------- config ---------------- */
 

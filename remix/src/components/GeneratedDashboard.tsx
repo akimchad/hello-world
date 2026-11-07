@@ -77,7 +77,7 @@ export function GeneratedDashboard(props: {
   const focusMode = !!app.focusMode
   // Focus Mode keeps only what you act on: open tasks, video feeds and playlists.
   const essential = (w: (typeof app.widgets)[number]) =>
-    w.type === 'checklist' || w.type === 'videos' || w.type === 'unified' || (w.type === 'cards' && /playlist/i.test(tables.get(w.table)?.name ?? ''))
+    w.type === 'checklist' || w.type === 'actions' || w.type === 'videos' || w.type === 'unified' || (w.type === 'cards' && /playlist/i.test(tables.get(w.table)?.name ?? ''))
   const visible = app.widgets.filter((w) => w.visible && tables.has(w.table) && (!focusMode || essential(w)))
   const hiddenByFocus = focusMode ? app.widgets.filter((w) => w.visible && tables.has(w.table) && !essential(w)).length : 0
   const rowsOf = (id: string) => rowsFor(id).rows
@@ -255,6 +255,8 @@ export function GeneratedDashboard(props: {
                         onFilter={(field, value) => value && setFilters((s) => ({ ...s, [field]: s[field] === value ? '' : value }))}
                         onExpand={() => setExpandedId(w.id)}
                         activeOnly={focusMode}
+                        isActionDone={(i) => !!app.overrides[`action:${w.id}#${i}`]}
+                        onToggleAction={(i, v) => props.onUpdate((a) => ({ overrides: { ...a.overrides, [`action:${w.id}#${i}`]: v } }))}
                       />
                     </div>
                   ))}
@@ -296,6 +298,8 @@ export function GeneratedDashboard(props: {
                   onOpenRow={(row, table) => setDetails({ row, table })}
                   onFilter={(field, value) => value && setFilters((s) => ({ ...s, [field]: s[field] === value ? '' : value }))}
                   activeOnly={focusMode}
+                  isActionDone={(i) => !!app.overrides[`action:${w.id}#${i}`]}
+                  onToggleAction={(i, v) => props.onUpdate((a) => ({ overrides: { ...a.overrides, [`action:${w.id}#${i}`]: v } }))}
                 />
               </div>
             </Overlay>

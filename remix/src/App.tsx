@@ -19,7 +19,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 export default function App() {
   const [s, a] = useWorkspace()
   const [ai, setAi] = useState<boolean | null>(null)
-  const [gen, setGen] = useState<{ stage: number; prompt: string } | null>(null)
+  const [gen, setGen] = useState<{ stage: number; prompt: string; startedAt: number; note?: string } | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<number>(0)
 
@@ -180,24 +180,31 @@ export default function App() {
     // Only the datasets the user kept switched on feed the generator.
     const sources = usableSources(chosen)
     if (!sources.length) return notify('Attach at least one data source first')
-    setGen({ stage: 0, prompt })
+    setGen({ stage: 0, prompt, startedAt: Date.now(), note: ai ? 'Claude is reading your data and designing your app…' : undefined })
     const timer = window.setInterval(() => setGen((g) => (g && g.stage < STAGES.length - 2 ? { ...g, stage: g.stage + 1 } : g)), 750)
     const minWait = sleep(STAGES.length * 700)
     const local = generateLocal(prompt, sources)
     let spec: AppSpec = local
     let fallbackNote: string | null = null
     if (ai) {
+      const ctl = new AbortController()
+      const timeout = window.setTimeout(() => ctl.abort(), 120_000)
       try {
         const res = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ prompt, tables: describeTables(sources) }),
+          signal: ctl.signal,
         })
-        const j = await res.json()
+        const j = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`)
         spec = sanitizeSpec(j.spec, sources, prompt, local)
       } catch (e) {
-        fallbackNote = `Claude request failed (${e instanceof Error ? e.message : 'error'}). Built with the local engine instead.`
+        const why = ctl.signal.aborted ? 'took longer than 2 minutes' : e instanceof Error ? e.message : 'error'
+        fallbackNote = `Claude couldn't generate this app (${why}), so REMIX built it with the local engine instead.`
+        setGen((g) => g && { ...g, note: 'Claude was unavailable, using the local engine…' })
+      } finally {
+        clearTimeout(timeout)
       }
     }
     await minWait
@@ -367,7 +374,7 @@ export default function App() {
         </div>
       )}
 
-      {gen && <GenerationLoader stage={gen.stage} prompt={gen.prompt} engine={ai ? 'Claude · claude-opus-5-5' : 'REMIX local engine'} />}
+      {gen && <GenerationLoader stage={gen.stage} prompt={gen.prompt} startedAt={gen.startedAt} note={gen.note} engine={ai ? 'Claude · claude-opus-5-5' : 'REMIX local engine'} />}
 
       {toast && (
         <div className="fade-up fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-line-2 bg-panel px-4 py-2.5 text-[13px] shadow-2xl" role="status">

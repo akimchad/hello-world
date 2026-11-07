@@ -17,6 +17,8 @@ const TYPE_META: Record<WidgetType, { label: string; icon: typeof Gauge }> = {
   videos: { label: 'Video feed', icon: Film },
   unified: { label: 'Unified feed', icon: Rows3 },
   summary: { label: 'Summary', icon: Gauge },
+  insight: { label: 'Insights', icon: Gauge },
+  actions: { label: 'Action items', icon: ListChecks },
 }
 
 const BUILDABLE: WidgetType[] = ['stat', 'bar', 'donut', 'area', 'table']

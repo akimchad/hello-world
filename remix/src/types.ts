@@ -61,8 +61,10 @@ export type WidgetType =
   | 'videos'
   | 'unified'
   | 'summary'
+  | 'insight'
+  | 'actions'
 
-export const WIDGET_TYPES: WidgetType[] = ['stat', 'bar', 'donut', 'area', 'cards', 'table', 'timeline', 'progress', 'checklist', 'videos', 'unified', 'summary']
+export const WIDGET_TYPES: WidgetType[] = ['stat', 'bar', 'donut', 'area', 'cards', 'table', 'timeline', 'progress', 'checklist', 'videos', 'unified', 'summary', 'insight', 'actions']
 
 /** One table mapped into a cross-platform feed (used by the unified feed and the summary widget). */
 export interface FeedSource {
@@ -105,6 +107,11 @@ export interface Widget {
   variant?: 'grid' | 'list'
   /** unified feed / summary: the tables they combine */
   feeds?: FeedSource[]
+  /** insight: analysis text written by Claude at generation time (rendered as plain text, never HTML) */
+  text?: string
+  bullets?: string[]
+  /** actions: suggested next steps written by Claude; ticks are stored in AppSpec.overrides */
+  items?: { text: string; detail?: string }[]
 }
 
 export type Archetype = 'developer' | 'student' | 'creator' | 'generic'

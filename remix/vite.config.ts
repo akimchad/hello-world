@@ -2,8 +2,8 @@ import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import type { IncomingMessage } from 'node:http'
-import { aiAvailable, generateWithClaude } from './server/ai'
-import { integrationsMiddleware } from './server/integrations'
+import { aiAvailable, generateWithClaude } from './server/ai.ts'
+import { integrationsMiddleware } from './server/integrations.ts'
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {

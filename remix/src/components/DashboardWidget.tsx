@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Area, AreaChart, Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { ArrowDown, ArrowUp, Check, ChevronDown, EyeOff, Inbox, Maximize2, Star } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, ChevronDown, EyeOff, Inbox, Maximize2, Sparkles, Star } from 'lucide-react'
 import type { Widget } from '../types'
 import { formatNumber, groupBy, isDone, relativeDate, statValue, str, timeSeries, type IRow } from '../lib/data'
 import { humanize } from '../lib/parse'
@@ -152,6 +152,9 @@ export function DashboardWidget(props: {
   onExpand?: () => void
   /** Focus Mode: checklists show only open items */
   activeOnly?: boolean
+  /** action-item widgets: ticked state lives in the app */
+  isActionDone?: (i: number) => boolean
+  onToggleAction?: (i: number, value: boolean) => void
 }) {
   const { w, rows, accent, compact } = props
   const [expanded, setExpanded] = useState(false)
@@ -414,6 +417,49 @@ export function DashboardWidget(props: {
       const n = feeds.reduce((a, f) => a + (props.rowsOf?.(f.table).length ?? 0), 0)
       meta = `${n} items from ${feeds.map((f) => (f.kind === 'video' ? 'YouTube' : 'GitHub')).filter((v, i, a) => a.indexOf(v) === i).join(' + ')} · click an item for details`
       body = props.rowsOf ? <UnifiedFeed feeds={feeds} rowsOf={props.rowsOf} compact={compact} onOpenRow={props.onOpenRow ?? (() => {})} /> : null
+      break
+    }
+    case 'insight':
+      meta = 'Written by Claude from your data at generation time'
+      body = (
+        <div>
+          <p className="text-[13.5px] leading-relaxed text-fg">{w.text}</p>
+          {!!w.bullets?.length && (
+            <ul className="mt-3 space-y-1.5">
+              {w.bullets.map((b, i) => (
+                <li key={i} className="flex items-start gap-2 text-[12.5px] text-muted">
+                  <Sparkles size={11} className="mt-1 shrink-0 text-accent" /> {b}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )
+      break
+    case 'actions': {
+      const items = (w.items ?? []).map((it, i) => ({ ...it, i, done: props.isActionDone?.(i) ?? false }))
+      const shownItems = props.activeOnly ? items.filter((x) => !x.done) : items
+      const doneN = items.filter((x) => x.done).length
+      meta = `${doneN} of ${items.length} done · suggested by Claude from your data`
+      body = shownItems.length ? (
+        <ul className="space-y-1">
+          {shownItems.map((it) => (
+            <li key={it.i}>
+              <button onClick={() => props.onToggleAction?.(it.i, !it.done)} className="flex w-full items-start gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-fg/[0.04]">
+                <span className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-[5px] border transition ${it.done ? 'border-accent bg-accent text-accent-ink' : 'border-line-2'}`}>
+                  {it.done && <Check size={11} strokeWidth={3} />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className={`block text-[13px] ${it.done ? 'text-faint line-through' : ''}`}>{it.text}</span>
+                  {it.detail && <span className="mt-0.5 block text-[11.5px] text-muted">{it.detail}</span>}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <Empty label="All done" />
+      )
       break
     }
     case 'summary':

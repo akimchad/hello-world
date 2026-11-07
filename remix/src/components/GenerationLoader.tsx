@@ -1,8 +1,15 @@
+import { useEffect, useState } from 'react'
 import { Check, Loader2 } from 'lucide-react'
 
 export const STAGES = ['Analyzing your data', 'Understanding your request', 'Designing your interface', 'Building your application', 'Your application is ready']
 
-export function GenerationLoader({ stage, prompt, engine }: { stage: number; prompt: string; engine: string }) {
+export function GenerationLoader({ stage, prompt, engine, startedAt, note }: { stage: number; prompt: string; engine: string; startedAt: number; note?: string }) {
+  const [, tick] = useState(0)
+  useEffect(() => {
+    const t = window.setInterval(() => tick((n) => n + 1), 500)
+    return () => clearInterval(t)
+  }, [])
+  const secs = Math.floor((Date.now() - startedAt) / 1000)
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-bg/80 px-4 backdrop-blur-md">
       <div className="card fade-up w-full max-w-md overflow-hidden">
@@ -23,6 +30,11 @@ export function GenerationLoader({ stage, prompt, engine }: { stage: number; pro
         </div>
         <div className="p-5">
           <p className="line-clamp-2 text-[13px] italic text-muted">“{prompt}”</p>
+          {note && (
+            <p className="mt-2 flex items-center gap-1.5 text-[12px] text-accent">
+              <Loader2 size={12} className="animate-spin" /> {note}
+            </p>
+          )}
           <ul className="mt-4 space-y-2.5">
             {STAGES.map((s, i) => (
               <li key={s} className={`flex items-center gap-3 text-[13px] transition ${i <= stage ? 'text-fg' : 'text-faint'}`}>
@@ -35,7 +47,9 @@ export function GenerationLoader({ stage, prompt, engine }: { stage: number; pro
             ))}
           </ul>
           <div className="mt-5 flex items-center justify-between font-mono text-[10px] uppercase tracking-wider text-faint">
-            <span>{engine}</span>
+            <span>
+              {engine} · {secs}s
+            </span>
             <span>{Math.round(((stage + 1) / STAGES.length) * 100)}%</span>
           </div>
           <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-fg/10">

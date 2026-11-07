@@ -421,16 +421,28 @@ export function balanceLayout(widgets: Widget[]): Widget[] {
 
 /* ---------------- AI support ---------------- */
 
+/**
+ * What Claude sees: every chosen table's schema plus up to 40 real rows (newest first when dated), compacted so a
+ * full GitHub + YouTube workspace fits comfortably in one request. Thumbnails and long URLs are left out.
+ */
 export function describeTables(sources: DataSource[]) {
+  const clip = (v: unknown): unknown =>
+    typeof v === 'string' ? (v.length > 140 ? v.slice(0, 139) + '…' : v) : Array.isArray(v) ? v.slice(0, 5).map(clip) : v
   return sources.flatMap((s) =>
-    s.tables.map((t) => ({
-      id: t.id,
-      name: t.name,
-      file: s.fileName,
-      rowCount: t.rows.length,
-      fields: t.fields.map((f) => ({ name: f.name, type: f.type, distinct: f.distinct, roles: f.roles, samples: f.samples })),
-      sampleRows: t.rows.slice(0, 3),
-    })),
+    s.tables.map((t) => {
+      const keep = t.fields.filter((f) => !f.roles.includes('image') && !/(_url|^url$|video_id)$/i.test(f.name))
+      const date = t.fields.find((f) => f.roles.includes('date'))?.name
+      const ordered = date ? [...t.rows].sort((a, b) => String(b[date] ?? '').localeCompare(String(a[date] ?? ''))) : t.rows
+      return {
+        id: t.id,
+        name: t.name,
+        source: s.connector ? `${s.connector} (live, connected account${s.account?.name ? `: ${s.account.name}` : ''})` : s.sample ? 'demo dataset' : `uploaded file ${s.fileName}`,
+        rowCount: t.rows.length,
+        fields: t.fields.map((f) => ({ name: f.name, type: f.type, distinct: f.distinct, roles: f.roles, samples: f.samples })),
+        rows: ordered.slice(0, 40).map((r) => Object.fromEntries(keep.map((f) => [f.name, clip(r[f.name])]))),
+        ...(s.profile ? { profile: Object.fromEntries(Object.entries(s.profile).filter(([k]) => !/avatar|thumb/i.test(k)).map(([k, v]) => [k, clip(v)])) } : {}),
+      }
+    }),
   )
 }
 
@@ -447,6 +459,8 @@ const REQUIRED: Record<WidgetType, (keyof Widget)[]> = {
   videos: ['titleField'],
   unified: [],
   summary: [],
+  insight: ['text'],
+  actions: ['items'],
 }
 const FIELD_KEYS: (keyof Widget)[] = ['field', 'valueField', 'dateField', 'titleField', 'subtitleField', 'badgeField', 'tagField', 'metricField', 'progressField', 'doneField', 'imageField', 'linkField']
 
@@ -460,8 +474,33 @@ export function sanitizeSpec(raw: unknown, sources: DataSource[], prompt: string
     if (!w || typeof w !== 'object') continue
     const x = w as Record<string, unknown>
     const type = x.type as WidgetType
-    // Feed and summary widgets combine several tables; they come from the local engine, not the model.
-    if (!WIDGET_TYPES.includes(type) || type === 'unified' || type === 'summary') continue
+    if (!WIDGET_TYPES.includes(type)) continue
+    // Feed and summary widgets combine several tables, so the model only chooses *where* they go;
+    // their wiring comes from the local engine.
+    if (type === 'unified' || type === 'summary') {
+      const lw = local.widgets.find((w) => w.type === type)
+      if (lw && !widgets.some((w) => w.type === type)) widgets.push({ ...lw, id: uid(), visible: true, title: typeof x.title === 'string' && x.title.trim() ? x.title.slice(0, 60) : lw.title })
+      continue
+    }
+    // Claude-written widgets: plain text only, length-limited.
+    if (type === 'insight' || type === 'actions') {
+      const t0 = findTable(x.table) ?? tables[0]
+      const clean = (v: unknown, n: number) => (typeof v === 'string' ? v.replace(/[<>]/g, '').trim().slice(0, n) : '')
+      const out: Widget = { id: uid(), type, table: t0.id, title: clean(x.title, 60) || (type === 'insight' ? 'Insights' : 'Action items'), size: ([2, 3, 4].includes(Number(x.size)) ? Number(x.size) : 2) as Widget['size'], visible: true }
+      if (type === 'insight') {
+        out.text = clean(x.text, 900)
+        out.bullets = Array.isArray(x.bullets) ? x.bullets.map((b) => clean(b, 220)).filter(Boolean).slice(0, 6) : []
+        if (!out.text) continue
+      } else {
+        out.items = (Array.isArray(x.items) ? x.items : [])
+          .map((it) => (typeof it === 'string' ? { text: clean(it, 160) } : it && typeof it === 'object' ? { text: clean((it as Record<string, unknown>).text, 160), detail: clean((it as Record<string, unknown>).detail, 220) || undefined } : { text: '' }))
+          .filter((it) => it.text)
+          .slice(0, 10)
+        if (!out.items.length) continue
+      }
+      widgets.push(out)
+      continue
+    }
     const t = findTable(x.table)
     if (!t) continue
     const names = new Set(t.fields.map((f) => f.name))
@@ -486,7 +525,8 @@ export function sanitizeSpec(raw: unknown, sources: DataSource[], prompt: string
   if (!widgets.length) throw new Error('Model returned no usable widgets')
   // Everything the local engine found but the model didn't use stays available in the widget library.
   // Keep the cross-platform feed and summary on top of a Claude-designed app too.
-  const crossPlatform = local.widgets.filter((w) => (w.type === 'unified' || w.type === 'summary') && w.visible)
+  // ...unless the model already placed them itself.
+  const crossPlatform = local.widgets.filter((w) => (w.type === 'unified' || w.type === 'summary') && w.visible && !widgets.some((x) => x.type === w.type))
   widgets.unshift(...crossPlatform)
   const used = new Set(widgets.map((w) => `${w.type}:${w.table}:${w.field ?? w.titleField ?? w.dateField ?? ''}`))
   const library = local.widgets
